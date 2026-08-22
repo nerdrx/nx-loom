@@ -112,6 +112,19 @@ def run():
     m3 = _measure(obj)
     out.append(("cylinder unwraps evenly", m3["degenerate"] == 0
                 and m3["spread"] < 1.2 and m3["in01"], str(m3)))
+    # An n-sided patch is one disc, not one island per sub-block. The two caps
+    # used to fragment into 16 pieces each.
+    out.append(("an n-sided cap is a single island", m3["islands"] <= 4,
+                f"{m3['islands']} islands for 8 wall quads + 2 caps"))
+
+    # a thin triangle patch must not be stretched onto a circle
+    obj = _trace(lambda: bpy.ops.mesh.primitive_cone_add(
+        vertices=16, radius1=1.0, depth=2.0), 0.3)
+    bpy.ops.nxloom.generate_uvs()
+    m3b = _measure(obj)
+    out.append(("disc charts follow the patch's real proportions",
+                m3b["degenerate"] == 0 and m3b["spread"] < 4.0 and m3b["in01"],
+                f"{m3b['spread']:.2f}x spread (a plain circle gives ~9.8x)"))
 
     # a torus closes on itself in both directions, so the walk has to cut
     obj = _trace(lambda: bpy.ops.mesh.primitive_torus_add(

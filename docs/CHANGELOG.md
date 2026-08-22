@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.4 — unreleased
+
+**n-sided patches unwrap as one island instead of shattering.** Their sub-
+blocks are a quad fan meeting at a centre, and a fan of n quads cannot be laid
+out rigidly on a lattice for n != 4 — which is why every pole fragmented into a
+dozen islands. Dropping the rigid constraint *inside* a patch buys a single
+seamless disc. A cylinder went from **33 islands to 3**.
+
+Rim points follow the patch's **real proportions**, not a perfect circle. A
+circle turns a thin triangle into a hexagon and stretches it badly — measured
+9.8x texel spread on a cone's slant patches, now **2.2x**.
+
+Island scale is now true 3D area over actual UV area, rather than over a count
+of lattice cells. Counting cells only works while every cell is a unit square,
+which a disc chart's wedges are not.
+
+231 headless checks + 10 GUI checks.
+
+
 ## 0.9.3 — unreleased
 
 **Hover highlighting.** With the Loom Draw tool active, whatever is under the

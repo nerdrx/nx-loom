@@ -379,8 +379,18 @@ open. Ringing a patch does separate it.
 Islands are scaled by their true 3D face area over their cell count, so texel
 density is even — measured 1.000x on a uniform layout, 1.5x on a drawn sphere.
 Deriving the area from the patch instead is wrong for n-sided patches, whose
-sub-blocks each get credited with the whole patch's area. n-sided patches
-unwrap per sub-block, which fragments poles; merging those is future work.
+sub-blocks each get credited with the whole patch's area.
+
+An n-sided patch is **one disc**, not one island per sub-block. Its blocks are
+a quad fan meeting at a centre, and a fan of n quads cannot be laid rigidly on
+a lattice for n != 4, so the rigid constraint is dropped *inside* the patch:
+rim points go round the centre at angles proportional to their spacing along
+the boundary, at radii following the patch's true proportions. A perfect circle
+would turn a thin triangle into a hexagon (9.8x texel spread on a cone's slant
+patches, versus 2.2x this way).
+
+Non-quad patches still do not merge with their neighbours — each is its own
+island. Merging them is general parameterisation, not a lattice walk.
 
 ## 7. Suggestion lanes
 
