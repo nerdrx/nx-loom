@@ -17,7 +17,8 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         "Draw layout arcs on the reference surface.\n"
         "Click to chain straight segments, drag to draw freehand.\n"
         "Ctrl: erase arc / dissolve node     Shift: drag a node\n"
-        "Ctrl+Shift: toggle a patch between filled and a hole"
+        "Ctrl+Shift: toggle a patch between filled and a hole\n"
+        "Ctrl+Wheel: pin the loop count across the arc under the cursor"
     )
     bl_icon = "ops.mesh.knife_tool"
     bl_widget = None
@@ -30,6 +31,12 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
          {"type": "LEFTMOUSE", "value": "PRESS", "alt": True}, None),
         ("nxloom.toggle_hole",
          {"type": "LEFTMOUSE", "value": "PRESS", "ctrl": True, "shift": True}, None),
+        ("nxloom.adjust_loops",
+         {"type": "WHEELUPMOUSE", "value": "PRESS", "ctrl": True},
+         {"properties": [("delta", 1)]}),
+        ("nxloom.adjust_loops",
+         {"type": "WHEELDOWNMOUSE", "value": "PRESS", "ctrl": True},
+         {"properties": [("delta", -1)]}),
     )
 
     def draw_settings(context, layout, tool):

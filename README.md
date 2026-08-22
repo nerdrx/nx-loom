@@ -79,6 +79,14 @@ normally painful.
 Layouts have a structural face floor (N patches cost faces), and LOD emission
 stops there and tells you, instead of handing you three identical levels.
 
+### Grab a loop count and watch it propagate
+
+"Six loops around this wrist" is an ordinary request. Ctrl+Wheel over an arc
+pins its count; the global solve keeps every patch closed around it, so the
+change ripples outward through the model. Pinned arcs are drawn in their own
+colour with their counts printed in the viewport — the quantiser stops being
+something you trust and becomes something you can see.
+
 ### A face budget, not just an edge length
 
 Game work is specified in faces, not millimetres. `Size By: Face Count` solves
@@ -140,7 +148,7 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 231 headless
+layouts — including a layout *drawn from nothing* on a sphere. 242 headless
 checks plus 10 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
@@ -165,6 +173,7 @@ dropped and named in the report — never fudged into the mesh.
    | Shift-drag | move a node |
    | Alt-click | retype an arc (flow / crease / boundary / seam) |
    | Ctrl-Shift-click | toggle a patch between filled and a hole |
+   | Ctrl-Wheel | pin how many loops cross the arc under the cursor |
    | Esc, RMB | end the chain; again to leave the tool |
 
    Whatever is under the cursor lights up before you click, so you can see

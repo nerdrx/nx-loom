@@ -94,6 +94,12 @@ class NXLoomSettings(bpy.types.PropertyGroup):
         description="Draw the layout graph in the viewport",
         default=True,
     )
+    show_counts: BoolProperty(
+        name="Show Loop Counts",
+        description="Print the loop count on pinned arcs and on the arc under "
+                    "the cursor",
+        default=True,
+    )
     overlay_xray: BoolProperty(
         name="Layout X-Ray",
         description="Draw the layout on top of everything instead of letting "

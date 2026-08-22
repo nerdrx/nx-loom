@@ -143,6 +143,17 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
         col.prop(st, "reproject")
         col.prop(st, "fill_background")
 
+        graph = get_graph(active_object(context))
+        pinned = sum(1 for a in graph.arcs.values() if a.n_lock) if graph else 0
+        box = layout.box()
+        box.label(text="Ctrl+Wheel over an arc pins")
+        box.label(text="its loop count; the solve")
+        box.label(text="propagates it everywhere.")
+        if pinned:
+            row = box.row()
+            row.label(text=f"{pinned} arc(s) pinned", icon="PINNED")
+            row.operator("nxloom.clear_loop_locks", text="", icon="X")
+
 
 class NXLOOM_PT_symmetry(_Sub, bpy.types.Panel):
     bl_label = "Symmetry"
@@ -248,6 +259,7 @@ class NXLOOM_PT_display(_Sub, bpy.types.Panel):
         st = context.scene.nx_loom
         layout.prop(st, "show_overlay")
         layout.prop(st, "overlay_xray")
+        layout.prop(st, "show_counts")
         layout.prop(st, "corner_angle")
         layout.prop(st, "snap_pixels")
         layout.prop(st, "pick_pixels")

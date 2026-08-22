@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.5 — unreleased
+
+**Loop counts you can grab.** Ctrl+Wheel over an arc pins how many loops cross
+it. The global solve then keeps every patch closed around that, so pinning one
+arc ripples through the rest of the model — measured, three other arcs re-solve
+from a single pin.
+
+The quantiser is the cleverest thing in this addon and it was invisible behind
+a density slider. Pinned arcs are drawn in their own colour and their counts
+are printed in the viewport, along with the count of whatever arc you are
+hovering, so the solve is something you can reason about rather than trust.
+
+`n_lock` has existed in the data model since 0.1.0 and the solver has always
+honoured it; there was simply no way to reach it.
+
+- A pin holds through a density change — that is what pinning means.
+- Two pins that cannot both hold are reported as an unresolved patch, not
+  silently dropped.
+- `Clear Loop Pins` in the Size panel hands control back to the size settings.
+
+242 headless checks + 10 GUI checks.
+
+
 ## 0.9.4 — unreleased
 
 **n-sided patches unwrap as one island instead of shattering.** Their sub-

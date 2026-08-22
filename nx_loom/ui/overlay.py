@@ -8,6 +8,7 @@ solver refused, in red, before it becomes a hole you find later.
 
 from __future__ import annotations
 
+import blf
 import bpy
 import gpu
 import numpy as np
@@ -29,8 +30,10 @@ COL_BAD = (1.0, 0.18, 0.28, 1.0)
 COL_PREVIEW = (1.0, 1.0, 1.0, 0.95)
 COL_SNAP = (1.0, 0.85, 0.2, 1.0)
 COL_HOVER = (1.0, 0.85, 0.2, 1.0)
+COL_PINNED = (0.20, 1.0, 0.85, 1.0)
 
 _handle = None
+_handle_px = None
 _preview = {"path": None, "snap": None, "anchor": None}
 _hover = {"node": None, "arc": None}
 _cache = {"key": None, "batches": None}
@@ -93,13 +96,19 @@ def _graph_of(obj):
 
 
 def _segments(graph):
-    """Arc polylines as line-list vertex pairs, grouped by arc type."""
+    """Arc polylines as line-list vertex pairs, grouped by arc type.
+
+    A pinned arc is drawn in its own colour whatever its type: the loop count
+    being held is what matters about it right then.
+    """
     by_type = {}
     for arc in graph.arcs.values():
         path = np.asarray(arc.path, dtype=float)
         if len(path) < 2:
             continue
-        pairs = by_type.setdefault(arc.type if arc.type in COL_ARC else "flow", [])
+        kind = "pinned" if arc.n_lock else (arc.type if arc.type in COL_ARC
+                                            else "flow")
+        pairs = by_type.setdefault(kind, [])
         for i in range(len(path) - 1):
             pairs.append(tuple(path[i]))
             pairs.append(tuple(path[i + 1]))
@@ -129,11 +138,14 @@ def _build(graph, bad_ids):
     point_shader = gpu.shader.from_builtin("UNIFORM_COLOR")
 
     batches = {"lines": [], "points": []}
+    palette = dict(COL_ARC)
+    palette["pinned"] = COL_PINNED
     for kind, pairs in _segments(graph).items():
         if pairs:
             batches["lines"].append(
                 (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
-                 COL_ARC[kind], 2.4)
+                 palette.get(kind, COL_ARC["flow"]),
+                 3.2 if kind == "pinned" else 2.4)
             )
     bad = _bad_patch_loops(graph, bad_ids)
     if bad:
@@ -238,18 +250,72 @@ def draw():
     gpu.state.blend_set("NONE")
 
 
+def draw_text():
+    """Loop counts, drawn in screen space.
+
+    The global integer solve is the cleverest thing here, and while it is only
+    a density slider it is invisible. Showing the number an arc carries — and
+    marking the ones being held — turns it into something you can reason about
+    rather than trust.
+    """
+    ctx = bpy.context
+    st = getattr(ctx.scene, "nx_loom", None)
+    if st is None or not st.show_overlay or not getattr(st, "show_counts", False):
+        return
+    obj = getattr(ctx, "active_object", None)
+    graph = _graph_of(obj)
+    if graph is None:
+        return
+    region = getattr(ctx, "region", None)
+    rv3d = getattr(getattr(ctx, "space_data", None), "region_3d", None)
+    if region is None or rv3d is None:
+        return
+
+    from bpy_extras.view3d_utils import location_3d_to_region_2d
+    from mathutils import Vector
+
+    hover = _hover["arc"]
+    try:
+        blf.size(0, 12)
+    except Exception:
+        return
+    for arc in graph.arcs.values():
+        pinned = bool(arc.n_lock)
+        path = np.asarray(arc.path, dtype=float)
+        if len(path) < 2 or arc.n is None:
+            continue
+        near_hover = (hover is not None and len(hover) == len(path)
+                      and bool(np.allclose(hover, path)))
+        if not (pinned or near_hover):
+            continue
+        p2d = location_3d_to_region_2d(region, rv3d,
+                                       Vector(tuple(path[len(path) // 2])))
+        if p2d is None:
+            continue
+        blf.color(0, *(COL_PINNED if pinned else COL_HOVER))
+        blf.position(0, p2d.x + 6, p2d.y + 6, 0)
+        blf.draw(0, f"{arc.n}" + ("*" if pinned else ""))
+
+
 def enable():
-    global _handle
+    global _handle, _handle_px
     if _handle is None:
-        _handle = bpy.types.SpaceView3D.draw_handler_add(draw, (), "WINDOW", "POST_VIEW")
+        _handle = bpy.types.SpaceView3D.draw_handler_add(draw, (), "WINDOW",
+                                                         "POST_VIEW")
+    if _handle_px is None:
+        _handle_px = bpy.types.SpaceView3D.draw_handler_add(draw_text, (),
+                                                            "WINDOW", "POST_PIXEL")
     _tag_redraw()
 
 
 def disable():
-    global _handle
+    global _handle, _handle_px
     if _handle is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handle, "WINDOW")
         _handle = None
+    if _handle_px is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_handle_px, "WINDOW")
+        _handle_px = None
     _tag_redraw()
 
 

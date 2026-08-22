@@ -436,6 +436,7 @@ Blender binding is displaced:
 | Shift-drag | move the node under the cursor along the surface |
 | Alt-click | give the arc under the cursor the current arc type |
 | Ctrl-Shift-click | toggle a patch between filled and a hole |
+| Ctrl-Wheel | pin the loop count across the arc under the cursor |
 | Esc / RMB | end the chain; again to leave the tool |
 
 Straight segments are traced by **interpolating rays, not world positions** —

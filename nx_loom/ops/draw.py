@@ -537,6 +537,79 @@ class NXLOOM_OT_hover(bpy.types.Operator):
         return {"PASS_THROUGH"}
 
 
+class NXLOOM_OT_adjust_loops(bpy.types.Operator):
+    """Pin the number of loops across the arc under the cursor
+
+    The global solve keeps every patch closed, so pinning one arc ripples
+    through the rest of the model. That is the whole mechanism, and it is
+    invisible until you can grab a number and watch it propagate.
+    """
+
+    bl_idname = "nxloom.adjust_loops"
+    bl_label = "Adjust Loops"
+    bl_options = {"REGISTER", "UNDO"}
+
+    delta: bpy.props.IntProperty(name="Change", default=1)
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        surface = _surface_of(graph, context) if graph is not None else None
+        if surface is None:
+            return {"CANCELLED"}
+        _, hit = _arc_under(context, graph, event, surface)
+        if hit is None:
+            self.report({"WARNING"}, "No arc under the cursor")
+            return {"CANCELLED"}
+
+        arc = graph.arcs[hit[0]]
+        current = arc.n_lock if arc.n_lock else (arc.n or 1)
+        want = max(1, int(current) + int(self.delta))
+        arc.n_lock = want
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+
+        graph = get_graph(obj)
+        got = graph.arcs[hit[0]].n if hit[0] in graph.arcs else want
+        if got != want:
+            self.report({"WARNING"},
+                        f"Asked for {want} loops, solver could only reach {got}")
+        else:
+            self.report({"INFO"}, f"Arc {hit[0]} pinned to {want} loops")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_clear_loop_locks(bpy.types.Operator):
+    """Unpin every arc and let the size settings decide again"""
+
+    bl_idname = "nxloom.clear_loop_locks"
+    bl_label = "Clear Loop Pins"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        graph = get_graph(obj) if obj is not None and GRAPH_KEY in obj else None
+        return bool(graph and any(a.n_lock for a in graph.arcs.values()))
+
+    def execute(self, context):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        n = 0
+        for arc in graph.arcs.values():
+            if arc.n_lock:
+                arc.n_lock = None
+                n += 1
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"}, f"{n} arc(s) unpinned")
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_toggle_hole(bpy.types.Operator):
     """Mark the patch under the cursor as a hole, or fill it again"""
 
@@ -599,6 +672,8 @@ class NXLOOM_OT_toggle_hole(bpy.types.Operator):
 _CLASSES = (
     NXLOOM_OT_draw_arc,
     NXLOOM_OT_hover,
+    NXLOOM_OT_adjust_loops,
+    NXLOOM_OT_clear_loop_locks,
     NXLOOM_OT_toggle_hole,
     NXLOOM_OT_erase,
     NXLOOM_OT_move_node,
