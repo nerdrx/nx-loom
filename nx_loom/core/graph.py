@@ -202,6 +202,37 @@ class LayoutGraph:
                 n += 1
         return n
 
+    def patch_density(self, pid):
+        stored = self.settings.get("density", {})
+        return float(stored.get(str(list(self.patches[pid].arc_key())), 1.0))
+
+    def set_density(self, pid, value):
+        """Ask for more or less resolution inside one patch.
+
+        Keyed on the patch's arcs, not its id, for the same reason holes are:
+        patches are re-derived on every edit.
+        """
+        stored = dict(self.settings.get("density", {}))
+        key = str(list(self.patches[pid].arc_key()))
+        if abs(value - 1.0) < 1e-6:
+            stored.pop(key, None)
+        else:
+            stored[key] = float(value)
+        self.settings["density"] = stored
+
+    def arc_density(self):
+        """Per-arc multiplier, averaged over the patches that share the arc."""
+        stored = self.settings.get("density", {})
+        if not stored:
+            return {}
+        acc = {}
+        for patch in self.patches.values():
+            d = float(stored.get(str(list(patch.arc_key())), 1.0))
+            for side in patch.sides:
+                for aid, _rev in side:
+                    acc.setdefault(aid, []).append(d)
+        return {aid: float(sum(v) / len(v)) for aid, v in acc.items() if v}
+
     def set_hole(self, pid, is_hole):
         holes = {tuple(k) for k in self.settings.get("holes", [])}
         key = self.patches[pid].arc_key()

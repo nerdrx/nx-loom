@@ -18,7 +18,8 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         "Click to chain straight segments, drag to draw freehand.\n"
         "Ctrl: erase arc / dissolve node     Shift: drag a node\n"
         "Ctrl+Shift: toggle a patch between filled and a hole\n"
-        "Ctrl+Wheel: pin the loop count across the arc under the cursor"
+        "Ctrl+Wheel: pin the loop count across the arc under the cursor\n"
+        "Ctrl+Alt+Wheel: more or less resolution inside one patch"
     )
     bl_icon = "ops.mesh.knife_tool"
     bl_widget = None
@@ -37,6 +38,12 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         ("nxloom.adjust_loops",
          {"type": "WHEELDOWNMOUSE", "value": "PRESS", "ctrl": True},
          {"properties": [("delta", -1)]}),
+        ("nxloom.adjust_patch_density",
+         {"type": "WHEELUPMOUSE", "value": "PRESS", "ctrl": True, "alt": True},
+         {"properties": [("factor", 1.25)]}),
+        ("nxloom.adjust_patch_density",
+         {"type": "WHEELDOWNMOUSE", "value": "PRESS", "ctrl": True, "alt": True},
+         {"properties": [("factor", 0.8)]}),
     )
 
     def draw_settings(context, layout, tool):

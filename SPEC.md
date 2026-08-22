@@ -412,7 +412,7 @@ they write arcs, and arcs are the only thing they write.
   bands with a support-loop count. These are the cases where detection is
   reliable *and* checkable at a glance; anything ambiguous is simply not
   offered rather than guessed at.
-- **Rigging (v1.0).** Revolute axes come free from the cylinder fits; rigid
+- **Rigging (future).** Revolute axes come free from the cylinder fits; rigid
   components are patch groups; fillet bands are the only blend zones. Same
   rule: proposed rig, artist confirms.
 
@@ -437,6 +437,7 @@ Blender binding is displaced:
 | Alt-click | give the arc under the cursor the current arc type |
 | Ctrl-Shift-click | toggle a patch between filled and a hole |
 | Ctrl-Wheel | pin the loop count across the arc under the cursor |
+| Ctrl-Alt-Wheel | more or less resolution inside one patch |
 | Esc / RMB | end the chain; again to leave the tool |
 
 Straight segments are traced by **interpolating rays, not world positions** —

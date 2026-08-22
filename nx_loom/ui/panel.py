@@ -154,6 +154,15 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
             row.label(text=f"{pinned} arc(s) pinned", icon="PINNED")
             row.operator("nxloom.clear_loop_locks", text="", icon="X")
 
+        box = layout.box()
+        box.label(text="Ctrl+Alt+Wheel over a patch")
+        box.label(text="for more or less detail there.")
+        n_dens = len(graph.settings.get("density", {})) if graph else 0
+        if n_dens:
+            row = box.row()
+            row.label(text=f"{n_dens} patch override(s)", icon="MOD_MESHDEFORM")
+            row.operator("nxloom.clear_patch_density", text="", icon="X")
+
 
 class NXLOOM_PT_symmetry(_Sub, bpy.types.Panel):
     bl_label = "Symmetry"

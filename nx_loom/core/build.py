@@ -52,6 +52,13 @@ def _solve_counts(graph, target_edge, fill_background=False):
         return [[rep_of[a] for a in side]
                 for side in graph.patches[pid].arc_sides()]
 
+    # A patch asking for more resolution is expressed as a longer arc: the
+    # quantiser already balances inconsistent targets by least squares, so this
+    # needs no special case in the solver at all.
+    dens = graph.arc_density()
+    if dens:
+        lengths = {r: lengths[r] * dens.get(r, 1.0) for r in rep_ids}
+
     counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
                                 list(graph.patches), rep_sides, locks)
     return {aid: counts_rep[rep_of[aid]] for aid in graph.arcs}, qrep

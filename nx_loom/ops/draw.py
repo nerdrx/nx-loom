@@ -610,6 +610,77 @@ class NXLOOM_OT_clear_loop_locks(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _patch_under(context, obj, graph, event):
+    """Which patch the cursor is over, via the face attribute build stamps."""
+    origin, direction = _mouse_ray(context, event)
+    mw_inv = obj.matrix_world.inverted()
+    lo = mw_inv @ Vector(tuple(origin))
+    ld = (mw_inv.to_3x3() @ Vector(tuple(direction))).normalized()
+    hit, _, _, face = obj.ray_cast(lo, ld)
+    if hit and face >= 0:
+        attr = obj.data.attributes.get("nx_loom_patch")
+        if attr is not None and face < len(attr.data):
+            pid = int(attr.data[face].value)
+            if pid in graph.patches:
+                return pid
+    return None
+
+
+class NXLOOM_OT_adjust_patch_density(bpy.types.Operator):
+    """Ask for more or less resolution inside the patch under the cursor"""
+
+    bl_idname = "nxloom.adjust_patch_density"
+    bl_label = "Patch Density"
+    bl_options = {"REGISTER", "UNDO"}
+
+    factor: bpy.props.FloatProperty(name="Factor", default=1.25)
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        if graph is None:
+            return {"CANCELLED"}
+        pid = _patch_under(context, obj, graph, event)
+        if pid is None:
+            self.report({"WARNING"}, "No generated face under the cursor")
+            return {"CANCELLED"}
+        now = graph.patch_density(pid)
+        want = float(np.clip(now * self.factor, 0.2, 5.0))
+        graph.set_density(pid, want)
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"}, f"Patch {pid} density {want:.2f}x")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_clear_patch_density(bpy.types.Operator):
+    """Return every patch to the global size settings"""
+
+    bl_idname = "nxloom.clear_patch_density"
+    bl_label = "Clear Patch Density"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        graph = get_graph(obj) if obj is not None and GRAPH_KEY in obj else None
+        return bool(graph and graph.settings.get("density"))
+
+    def execute(self, context):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        n = len(graph.settings.get("density", {}))
+        graph.settings["density"] = {}
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"}, f"{n} patch density override(s) cleared")
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_toggle_hole(bpy.types.Operator):
     """Mark the patch under the cursor as a hole, or fill it again"""
 
@@ -632,12 +703,7 @@ class NXLOOM_OT_toggle_hole(bpy.types.Operator):
         lo = mw_inv @ Vector(tuple(origin))
         ld = (mw_inv.to_3x3() @ Vector(tuple(direction))).normalized()
 
-        pid = None
-        hit, _, _, face = obj.ray_cast(lo, ld)
-        if hit and face >= 0:
-            attr = obj.data.attributes.get("nx_loom_patch")
-            if attr is not None and face < len(attr.data):
-                pid = int(attr.data[face].value)
+        pid = _patch_under(context, obj, graph, event)
 
         if pid is None:
             # No generated face under the cursor: either an existing hole or the
@@ -674,6 +740,8 @@ _CLASSES = (
     NXLOOM_OT_hover,
     NXLOOM_OT_adjust_loops,
     NXLOOM_OT_clear_loop_locks,
+    NXLOOM_OT_adjust_patch_density,
+    NXLOOM_OT_clear_patch_density,
     NXLOOM_OT_toggle_hole,
     NXLOOM_OT_erase,
     NXLOOM_OT_move_node,

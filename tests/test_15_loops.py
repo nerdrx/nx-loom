@@ -122,4 +122,67 @@ def run():
         out.append(("two pins that cannot both hold are reported",
                     len(rep["unsatisfied_patches"]) > 0,
                     f"unsatisfied {rep['unsatisfied_patches']}"))
+
+    out += run_patch_density()
+    return out
+
+
+def run_patch_density():
+    """Asking one patch for more detail than the rest."""
+    out = []
+
+    obj = _grid_layout(n=3, target_edge=0.3)
+    graph = get_graph(obj)
+    base_total = len(obj.data.polygons)
+
+    pid = sorted(graph.patches)[0]
+    out.append(("patches start at 1.0x", abs(graph.patch_density(pid) - 1.0) < 1e-9,
+                str(graph.patch_density(pid))))
+
+    def faces_in(o, patch_id):
+        attr = o.data.attributes.get("nx_loom_patch")
+        if attr is None:
+            return 0
+        return sum(1 for d in attr.data if int(d.value) == patch_id)
+
+    before = faces_in(obj, pid)
+    graph.set_density(pid, 2.5)
+    set_graph(obj, graph)
+    rebuild_object(obj, bpy.context)
+    graph = get_graph(obj)
+    after = faces_in(obj, pid)
+    out.append(("raising one patch's density gives it more faces",
+                after > before, f"{before} -> {after} faces in that patch"))
+    out.append(("the override survives the rebuild",
+                abs(graph.patch_density(pid) - 2.5) < 1e-6,
+                str(graph.patch_density(pid))))
+    st = _clean(obj)
+    out.append(("and everything still closes",
+                st["nm"] == 0 and st["nonquad"] == 0, str(st)))
+
+    # the rest of the model must not be dragged along with it
+    others = len(obj.data.polygons) - after
+    base_others = base_total - before
+    out.append(("the rest of the model is broadly left alone",
+                abs(others - base_others) <= max(base_others * 0.6, 8),
+                f"{base_others} -> {others} faces elsewhere"))
+
+    # lowering works too
+    graph.set_density(pid, 0.4)
+    set_graph(obj, graph)
+    rebuild_object(obj, bpy.context)
+    lowered = faces_in(obj, pid)
+    out.append(("lowering it gives fewer", lowered < after,
+                f"{after} -> {lowered}"))
+
+    bpy.ops.nxloom.clear_patch_density()
+    graph = get_graph(obj)
+    out.append(("clearing returns every patch to the global settings",
+                not graph.settings.get("density"), ""))
+
+    from nx_loom.ui.tools import NXLOOM_TOOL_draw
+    keys = [k for k in NXLOOM_TOOL_draw.bl_keymap
+            if k[0] == "nxloom.adjust_patch_density"]
+    out.append(("Ctrl+Alt+Wheel is bound both ways", len(keys) == 2,
+                str([k[1]["type"] for k in keys])))
     return out

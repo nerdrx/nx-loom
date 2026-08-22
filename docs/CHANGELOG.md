@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0 — unreleased
+
+**Per-patch density.** Ctrl+Alt+Wheel over a patch asks for more or less
+resolution just there — detail in the face, less in the boots. This is the
+authored counterpart to QuadForge's automatic curvature adaptivity: the artist
+says where.
+
+It needed no special case in the solver. A patch wanting more resolution is
+expressed as longer arcs, and the quantiser already balances inconsistent
+targets by least squares. Overrides are keyed on the patch's arcs, like holes,
+so they survive re-discovery and density changes.
+
+250 headless checks + 10 GUI checks.
+
+
 ## 0.9.5 — unreleased
 
 **Loop counts you can grab.** Ctrl+Wheel over an arc pins how many loops cross
