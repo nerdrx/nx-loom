@@ -250,6 +250,7 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
 
     def _finish(self, context, cancelled=False):
         overlay.clear_preview()
+        overlay.clear_hover()
         context.window.cursor_modal_restore()
         context.workspace.status_text_set(None)
         obj = active_object(context)
@@ -489,6 +490,53 @@ class NXLOOM_OT_set_arc_type(bpy.types.Operator):
         return {"FINISHED"}
 
 
+_LAST_HOVER_XY = [None]
+
+
+class NXLOOM_OT_hover(bpy.types.Operator):
+    """Highlight the node or arc under the cursor"""
+
+    bl_idname = "nxloom.hover"
+    bl_label = "Loom Hover"
+    bl_options = {"INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        xy = (event.mouse_region_x, event.mouse_region_y)
+        last = _LAST_HOVER_XY[0]
+        if last is not None and abs(xy[0] - last[0]) < 2 and abs(xy[1] - last[1]) < 2:
+            return {"PASS_THROUGH"}
+        _LAST_HOVER_XY[0] = xy
+
+        obj = active_object(context)
+        graph = get_graph(obj)
+        surface = _surface_of(graph, context) if graph is not None else None
+        if surface is None:
+            overlay.clear_hover()
+            return {"PASS_THROUGH"}
+
+        origin, direction = _mouse_ray(context, event)
+        point = ray_surface(surface, origin, direction)
+        if point is None:
+            overlay.clear_hover()
+            return {"PASS_THROUGH"}
+
+        radius = _pick_radius(context, point)
+        node = nearest_node(graph, point, radius)
+        if node is not None:
+            overlay.set_hover(node=np.asarray(graph.nodes[node[0]].co, dtype=float))
+            return {"PASS_THROUGH"}
+        hit = nearest_on_arc(graph, point, radius)
+        if hit is not None:
+            overlay.set_hover(arc=np.asarray(graph.arcs[hit[0]].path, dtype=float))
+            return {"PASS_THROUGH"}
+        overlay.clear_hover()
+        return {"PASS_THROUGH"}
+
+
 class NXLOOM_OT_toggle_hole(bpy.types.Operator):
     """Mark the patch under the cursor as a hole, or fill it again"""
 
@@ -550,6 +598,7 @@ class NXLOOM_OT_toggle_hole(bpy.types.Operator):
 
 _CLASSES = (
     NXLOOM_OT_draw_arc,
+    NXLOOM_OT_hover,
     NXLOOM_OT_toggle_hole,
     NXLOOM_OT_erase,
     NXLOOM_OT_move_node,

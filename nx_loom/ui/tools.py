@@ -22,6 +22,7 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
     bl_icon = "ops.mesh.knife_tool"
     bl_widget = None
     bl_keymap = (
+        ("nxloom.hover", {"type": "MOUSEMOVE", "value": "ANY"}, None),
         ("nxloom.draw_arc", {"type": "LEFTMOUSE", "value": "PRESS"}, None),
         ("nxloom.erase", {"type": "LEFTMOUSE", "value": "PRESS", "ctrl": True}, None),
         ("nxloom.move_node", {"type": "LEFTMOUSE", "value": "PRESS", "shift": True}, None),

@@ -444,6 +444,11 @@ converted to world units per click, so it feels identical zoomed into an ear or
 looking at a whole body. Ending a stroke on an existing arc splits it, which is
 what makes a T-junction something you draw rather than plan for.
 
+Whatever is under the cursor is highlighted in amber before you click, so it is
+clear what Ctrl or Shift will grab. It is driven from mouse-move via the tool
+keymap, which is only affordable because surfaces are cached; it throttles to
+2 pixels and only requests a redraw when the highlighted thing changes.
+
 The overlay draws the layout — arcs coloured by type, nodes sized by role, and
 **any patch the solver refused, in red**. A layout problem has to be visible
 while you are drawing, not discovered later as a hole. A draw handler must

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.3 — unreleased
+
+**Hover highlighting.** With the Loom Draw tool active, whatever is under the
+cursor lights up before you click — a node as a large amber dot, an arc along
+its whole length. You can see what Ctrl or Shift is about to grab instead of
+finding out afterwards.
+
+This was only affordable once surfaces were cached: it runs from mouse-move,
+costs 0.23 ms per move, is throttled to 2 pixels, and only asks for a redraw
+when the highlighted thing actually changes.
+
+Verified by rendering the overlay offscreen and counting pixels: 0 amber idle,
+225 hovering a node, 576 hovering an arc.
+
+224 headless checks + 10 GUI checks.
+
+
 ## 0.9.2 — unreleased
 
 Three things from drawing on a real model.

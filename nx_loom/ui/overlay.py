@@ -28,9 +28,11 @@ COL_CORNER = (1.0, 1.0, 1.0, 1.0)
 COL_BAD = (1.0, 0.18, 0.28, 1.0)
 COL_PREVIEW = (1.0, 1.0, 1.0, 0.95)
 COL_SNAP = (1.0, 0.85, 0.2, 1.0)
+COL_HOVER = (1.0, 0.85, 0.2, 1.0)
 
 _handle = None
 _preview = {"path": None, "snap": None, "anchor": None}
+_hover = {"node": None, "arc": None}
 _cache = {"key": None, "batches": None}
 
 
@@ -39,6 +41,26 @@ def set_preview(path=None, snap=None, anchor=None):
     _preview["snap"] = snap
     _preview["anchor"] = anchor
     _tag_redraw()
+
+
+def set_hover(node=None, arc=None):
+    """What the cursor is over. Redraw only when it actually changes —
+    this is fed from mouse-move, so an unconditional redraw would be a storm."""
+    same = ((node is None) == (_hover["node"] is None)
+            and (arc is None) == (_hover["arc"] is None))
+    if same and node is not None and _hover["node"] is not None:
+        same = bool(np.allclose(node, _hover["node"]))
+    if same and arc is not None and _hover["arc"] is not None:
+        same = (len(arc) == len(_hover["arc"])
+                and bool(np.allclose(arc, _hover["arc"])))
+    _hover["node"] = node
+    _hover["arc"] = arc
+    if not same:
+        _tag_redraw()
+
+
+def clear_hover():
+    set_hover(None, None)
 
 
 def clear_preview():
@@ -184,6 +206,25 @@ def draw():
         line_shader.uniform_float("color", COL_PREVIEW)
         batch_for_shader(line_shader, "LINES", {"pos": pairs}).draw(line_shader)
 
+    arc = _hover["arc"]
+    if arc is not None and len(arc) >= 2:
+        pairs = []
+        for i in range(len(arc) - 1):
+            pairs.append(tuple(arc[i]))
+            pairs.append(tuple(arc[i + 1]))
+        line_shader.bind()
+        line_shader.uniform_float("viewportSize", view_size)
+        line_shader.uniform_float("lineWidth", 6.0)
+        line_shader.uniform_float("color", COL_HOVER)
+        batch_for_shader(line_shader, "LINES", {"pos": pairs}).draw(line_shader)
+
+    if _hover["node"] is not None:
+        point_shader.bind()
+        gpu.state.point_size_set(15.0)
+        point_shader.uniform_float("color", COL_HOVER)
+        batch_for_shader(point_shader, "POINTS",
+                         {"pos": [tuple(_hover["node"])]}).draw(point_shader)
+
     marks = [p for p in (_preview["snap"], _preview["anchor"]) if p is not None]
     if marks:
         point_shader.bind()
@@ -219,3 +260,5 @@ def register():
 def unregister():
     disable()
     _cache["key"] = None
+    _hover["node"] = None
+    _hover["arc"] = None

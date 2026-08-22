@@ -140,8 +140,8 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 206 headless
-checks plus 8 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
+layouts — including a layout *drawn from nothing* on a sphere. 224 headless
+checks plus 10 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
 
@@ -166,6 +166,9 @@ dropped and named in the report — never fudged into the mesh.
    | Alt-click | retype an arc (flow / crease / boundary / seam) |
    | Ctrl-Shift-click | toggle a patch between filled and a hole |
    | Esc, RMB | end the chain; again to leave the tool |
+
+   Whatever is under the cursor lights up before you click, so you can see
+   what Ctrl or Shift is about to grab.
 
    Strokes snap to existing nodes, and ending one on an existing arc splits it
    into a T-junction. Enclose an area and it becomes a patch, filled at once —

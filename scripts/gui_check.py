@@ -119,25 +119,17 @@ def stage_two():
     finish()
 
 
-def _offscreen_check(ctx):
-    """Render the overlay into an offscreen buffer and count its pixels.
-
-    `screen.screenshot` reads the window's front buffer, which is empty under
-    llvmpipe — it returns a fully black image whether the overlay drew or not,
-    so it cannot tell us anything. An offscreen framebuffer renders the same
-    batches through the same shaders and can actually be read back.
-    """
+def _render(ctx, size):
+    """Render the overlay into an offscreen buffer and read the pixels back."""
     import gpu
 
     from nx_loom.ui import overlay
 
     rv3d = ctx["space_data"].region_3d
-    size = 600
     try:
         off = gpu.types.GPUOffScreen(size, size)
-    except Exception as e:
-        check("offscreen buffer available", False, repr(e))
-        return
+    except Exception:
+        return None
     try:
         with off.bind():
             fb = gpu.state.active_framebuffer_get()
@@ -148,30 +140,62 @@ def _offscreen_check(ctx):
                 overlay.draw()
             buf = fb.read_color(0, 0, size, size, 3, 0, "FLOAT")
         buf.dimensions = size * size * 3
-        px = np.array(buf.to_list(), dtype=float).reshape(-1, 3)
-    except Exception as e:
-        check("overlay renders into an offscreen buffer", False, repr(e))
+        return np.array(buf.to_list(), dtype=float).reshape(-1, 3)
+    except Exception:
+        return None
+    finally:
         off.free()
+
+
+def _offscreen_check(ctx):
+    """Render the overlay into an offscreen buffer and count its pixels.
+
+    `screen.screenshot` reads the window's front buffer, which is empty under
+    llvmpipe — it returns a fully black image whether the overlay drew or not,
+    so it cannot tell us anything. An offscreen framebuffer renders the same
+    batches through the same shaders and can actually be read back.
+    """
+    from nx_loom.ops.layout import get_graph
+    from nx_loom.ui import overlay
+
+    size = 600
+    px = _render(ctx, size)
+    if px is None:
+        check("overlay renders into an offscreen buffer", False,
+              "offscreen render failed")
         return
-    off.free()
 
     lit = int((px.max(axis=1) > 0.05).sum())
     violet = int((((px[:, 2] > 0.45) & (px[:, 2] - px[:, 1] > 0.15)
                    & (px[:, 0] - px[:, 1] > 0.02))).sum())
     white = int(((px > 0.9).all(axis=1)).sum())
+    amber_idle = int(((px[:, 0] > 0.8) & (px[:, 1] > 0.6) & (px[:, 2] < 0.4)).sum())
     check("overlay draws pixels at all", lit > 200, f"{lit} lit of {len(px)}")
     check("arcs use the accent colour", violet > 100, f"{violet} violet px")
     check("corner nodes drawn", white > 10, f"{white} near-white px")
 
-    shot = os.environ.get("NXL_OVERLAY_PNG")
-    if shot:
-        img = bpy.data.images.new("nxl_overlay", size, size, alpha=False)
-        rgba = np.concatenate([px, np.ones((len(px), 1))], axis=1)
-        img.pixels.foreach_set(rgba.ravel())
-        img.filepath_raw = shot
-        img.file_format = "PNG"
-        img.save()
-        print(f"   .. overlay buffer written to {shot}")
+    # hovering a node must visibly highlight it
+    graph = get_graph(bpy.context.view_layer.objects.active)
+    node = next(iter(graph.nodes.values()))
+    overlay.set_hover(node=np.asarray(node.co, dtype=float))
+    hp = _render(ctx, size)
+    overlay.clear_hover()
+    if hp is None:
+        check("hover highlight renders", False, "offscreen render failed")
+        return
+    amber = int(((hp[:, 0] > 0.8) & (hp[:, 1] > 0.6) & (hp[:, 2] < 0.4)).sum())
+    check("hover highlight renders", amber > amber_idle,
+          f"{amber_idle} amber px idle -> {amber} while hovering")
+
+    arc = next(iter(graph.arcs.values()))
+    overlay.set_hover(arc=np.asarray(arc.path, dtype=float))
+    ap = _render(ctx, size)
+    overlay.clear_hover()
+    if ap is not None:
+        amber_arc = int(((ap[:, 0] > 0.8) & (ap[:, 1] > 0.6)
+                         & (ap[:, 2] < 0.4)).sum())
+        check("hovering an arc highlights the whole arc",
+              amber_arc > amber, f"{amber} (node) -> {amber_arc} (arc) amber px")
 
 
 def finish():

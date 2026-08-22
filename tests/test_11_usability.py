@@ -6,6 +6,7 @@ And Apply must leave a genuinely plain mesh, with none of our bookkeeping on it.
 """
 
 import bpy
+import numpy as np
 
 from nx_loom.core.build import estimate_quads, solve_edge_for_count
 from nx_loom.ops.layout import get_graph
@@ -112,4 +113,73 @@ def run():
     out.append(("apply removes the patch-id attribute",
                 obj.data.attributes.get("nx_loom_patch") is None, ""))
     out.append(("apply stops drawing in front", not obj.show_in_front, ""))
+
+    out += run_hover()
+    return out
+
+
+def run_hover():
+    """Seeing what you are about to grab, before you click."""
+    import time
+
+    from nx_loom.core.authoring import nearest_node, nearest_on_arc
+    from nx_loom.core.picking import ray_surface
+    from nx_loom.core.surface import cached_surface
+    from nx_loom.ui import overlay
+
+    out = []
+
+    out.append(("the hover operator exists", hasattr(bpy.ops.nxloom, "hover"), ""))
+    from nx_loom.ui.tools import NXLOOM_TOOL_draw
+    bound = [k[0] for k in NXLOOM_TOOL_draw.bl_keymap]
+    out.append(("it is wired to mouse-move on the draw tool",
+                "nxloom.hover" in bound
+                and any(k[0] == "nxloom.hover" and k[1]["type"] == "MOUSEMOVE"
+                        for k in NXLOOM_TOOL_draw.bl_keymap), str(bound)))
+
+    # setting the same hover twice must not ask for a redraw the second time
+    overlay.clear_hover()
+    p = np.array([0.0, 0.0, 1.0])
+    overlay.set_hover(node=p)
+    first = overlay._hover["node"]
+    overlay.set_hover(node=p.copy())
+    out.append(("hover state is stable under an identical update",
+                first is not None
+                and np.allclose(overlay._hover["node"], p), ""))
+    overlay.clear_hover()
+    out.append(("clearing hover empties it",
+                overlay._hover["node"] is None
+                and overlay._hover["arc"] is None, ""))
+
+    obj = _traced()
+    graph = get_graph(obj)
+    src = bpy.data.objects.get(graph.reference)
+    surf = cached_surface(src, bpy.context.evaluated_depsgraph_get())
+
+    node = next(iter(graph.nodes.values()))
+    target = np.asarray(node.co, dtype=float)
+    origin = target + np.array([0.0, 0.0, 5.0])
+    hit = ray_surface(surf, origin, np.array([0.0, 0.0, -1.0]))
+    out.append(("a ray at a node lands on the surface", hit is not None, ""))
+    if hit is not None:
+        found = nearest_node(graph, hit, 0.2)
+        out.append(("and finds the node under it", found is not None,
+                    str(found)))
+
+    # the whole per-move path must be cheap enough to run on every mouse-move
+    rays = []
+    for k in range(200):
+        a = k / 200 * 2 * np.pi
+        o = np.array([np.cos(a) * 0.5, np.sin(a) * 0.5, 5.0])
+        rays.append((o, np.array([0.0, 0.0, -1.0])))
+    t0 = time.perf_counter()
+    for o, d in rays:
+        s2 = cached_surface(src, bpy.context.evaluated_depsgraph_get())
+        pt = ray_surface(s2, o, d)
+        if pt is not None:
+            if nearest_node(graph, pt, 0.1) is None:
+                nearest_on_arc(graph, pt, 0.1)
+    per = (time.perf_counter() - t0) / len(rays)
+    out.append(("hover costs little enough to run on every mouse-move",
+                per < 0.004, f"{per*1000:.2f} ms per move"))
     return out
