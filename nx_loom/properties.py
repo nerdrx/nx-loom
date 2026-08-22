@@ -96,6 +96,13 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "bends the whole arc; lower values keep the far end put",
         default=1.0, min=0.05, max=1.0,
     )
+    stroke_smooth: FloatProperty(
+        name="Stroke Smoothing",
+        description="How much hand jitter to fair out of freehand strokes on "
+                    "commit. A low-pass filter, not a straightener — 0 keeps "
+                    "every wobble",
+        default=0.35, min=0.0, max=1.0,
+    )
     bridge_rings: BoolProperty(
         name="Bridge Rings",
         description="After a ring cut, connect it to the previous ring with "

@@ -446,6 +446,7 @@ Blender binding is displaced:
 | Drag | freehand arc |
 | Ctrl-click | erase the arc under the cursor, or dissolve a valence-2 node |
 | Ctrl-Alt-drag | ring cut: swipe across a limb to loop it in one stroke |
+| Ctrl-Alt-Shift-drag | halo: drag outward from a point to ring it (eyes, mouths) |
 | Shift-drag | move the node under the cursor along the surface |
 | Alt-click | give the arc under the cursor the current arc type |
 | Ctrl-Shift-click | toggle a patch between filled and a hole |
@@ -471,6 +472,18 @@ clamped to its surface hits, because a natural swipe overshoots the silhouette.
 The ring is emitted as four even arcs between four nodes (the shape discovery
 already gives cornerless loops), with the first node anchored under the stroke
 start so successive rings correspond.
+
+**Halos** (`ops.draw.commit_halo`): a circle in the tangent plane at the
+centre, projected onto the surface — faithful at socket scale; head-scale
+loops are ring cut's job. The first node anchors where the drag released, so
+the artist places the ring's corners, and halos join the same last-ring chain
+as ring cuts, so concentric halos bridge into a loop band.
+
+**Strokes are faired at commit** (`authoring.fair_path`): freehand jitter is
+low-passed out of the polyline, endpoints fixed, reprojected as it relaxes.
+Straight rails and cross-section rings never smooth — they have no stroke to
+be jittery. The deferred-rebuild queue stores the object's NAME; a bpy
+reference held across frames dies if the object is deleted first.
 
 **Ring bridging** (`bridge_rings` in contour + `ops.draw.bridge_rings`): each
 new ring auto-connects to the previous one with four straight-rail wall arcs.

@@ -252,11 +252,21 @@ def run_typed_loops():
     first = draw_ops._PENDING["obj"] is not None
     draw_ops.queue_rebuild(obj)
     draw_ops.queue_rebuild(obj)
+    # the queue holds the NAME, never the object — a bpy reference kept
+    # across frames dies if the object is deleted before the timer fires
     out.append(("repeated adjustments coalesce into one pending rebuild",
-                first and draw_ops._PENDING["obj"] is obj, ""))
+                first and draw_ops._PENDING["obj"] == obj.name, ""))
     draw_ops._deferred_rebuild()
     out.append(("and the pending rebuild clears once it runs",
                 draw_ops._PENDING["obj"] is None, ""))
+    draw_ops._PENDING["obj"] = "no-such-object-anymore"
+    try:
+        draw_ops._deferred_rebuild()
+        gone_ok = True
+    except Exception:
+        gone_ok = False
+    out.append(("a deleted object before the timer fires is a no-op",
+                gone_ok and draw_ops._PENDING["obj"] is None, ""))
 
     from nx_loom.ui.tools import NXLOOM_TOOL_draw
     sel = [k for k in NXLOOM_TOOL_draw.bl_keymap if k[0] == "nxloom.select_arc"]

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.14.0 — unreleased
+
+Face work and line quality.
+
+**Halo: the eye-socket gesture.** Ctrl+Alt+Shift drag outward from a point —
+the drag sizes a ring around it, snapped to the surface, with the first node
+placed where you release. Two concentric halos bridge into a loop band, so an
+eye socket is: halo, halo, Ctrl+Shift-click the middle to hole it. Three
+gestures, verified end to end (clean quad band, open socket).
+
+**Stroke smoothing.** A wobbly freehand stroke becomes a wobbly edge loop in
+every mesh generated from it forever, so hand jitter is faired out at commit —
+a low-pass filter, not a straightener (measured: ~90% roughness removed while
+landing *closer* to the intended curve, endpoints untouched, still on the
+surface). `Stroke Smoothing` in the Display panel, 0 keeps every wobble.
+**Smooth Arcs** fairs existing arcs retroactively — the selected one, or every
+freehand arc.
+
+Also: the deferred rebuild queue now holds the object's *name*, never a bpy
+reference — a reference kept across frames dies with a ReferenceError if the
+object is deleted before the timer fires.
+
+308 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.13.0 — unreleased
 
 **Ring bridging: a tube of clean quads in two swipes.** After a ring cut, the

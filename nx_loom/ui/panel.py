@@ -315,6 +315,7 @@ class NXLOOM_PT_display(_Sub, bpy.types.Panel):
         layout.prop(st, "snap_pixels")
         layout.prop(st, "pick_pixels")
         layout.prop(st, "node_falloff")
+        layout.prop(st, "stroke_smooth")
         layout.prop(st, "bridge_rings")
         layout.prop(st, "rebuild_on_draw")
 

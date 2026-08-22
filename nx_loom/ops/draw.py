@@ -11,9 +11,10 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-from ..core.authoring import (add_arc, decimate, dissolve_node, move_node,
-                              nearest_node, nearest_on_arc, new_node,
-                              remove_arc, remove_node, resolve_anchor)
+from ..core.authoring import (add_arc, decimate, dissolve_node, fair_path,
+                              move_node, nearest_node, nearest_on_arc,
+                              new_node, remove_arc, remove_node,
+                              resolve_anchor)
 from ..core.graph import GRAPH_KEY
 from ..core.picking import (interp_rays, pixel_radius_world, ray_surface,
                             screen_ray, trace_rays)
@@ -74,8 +75,15 @@ def commit_arc(graph, surface, rays, snap_radius, min_step,
 
 
 def commit_path(graph, surface, path, snap_radius, min_step,
-                arc_type="flow", start_node=None, rail="surface"):
-    """Add an arc from an already-traced surface path."""
+                arc_type="flow", start_node=None, rail="surface",
+                smooth=0.0):
+    """Add an arc from an already-traced surface path.
+
+    ``smooth`` fairs hand jitter out of freehand strokes before the arc is
+    stored — a wobbly arc otherwise becomes a wobbly edge loop in every mesh
+    generated from it, forever. Straight rails never smooth: they have no
+    stroke to be jittery.
+    """
     path = np.asarray(path, dtype=float)
     if len(path) < 2:
         return None
@@ -89,6 +97,10 @@ def commit_path(graph, surface, path, snap_radius, min_step,
     path = decimate(path, min_step)
     if len(path) < 2:
         path = np.vstack([graph.nodes[a].co, graph.nodes[b].co])
+    if rail == "surface" and smooth > 0.0 and len(path) > 3:
+        project = surface.project if surface is not None else None
+        path = fair_path(path, iters=max(int(round(smooth * 24)), 1),
+                         strength=0.5, project=project)
     aid = add_arc(graph, a, b, path, surface, type=arc_type, rail=rail)
     return aid, a, b
 
@@ -213,7 +225,8 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         radius = _snap_radius(context, path[-1])
         res = commit_path(self.graph, self.surface, path, radius, self.min_step,
                           arc_type=context.scene.nx_loom.arc_type,
-                          start_node=self.anchor, rail="surface")
+                          start_node=self.anchor, rail="surface",
+                          smooth=context.scene.nx_loom.stroke_smooth)
         return self._after_commit(context, res)
 
     def _commit(self, context, rays):
@@ -551,9 +564,11 @@ def _deferred_rebuild():
     was wanted. Now the pin lands at once and the mesh catches up when the
     wheel stops.
     """
-    obj = _PENDING["obj"]
+    name = _PENDING["obj"]
     _PENDING["obj"] = None
+    obj = bpy.data.objects.get(name) if name else None
     if obj is None:
+        # deleted before the timer fired — nothing to rebuild, nothing to leak
         return None
     try:
         ctx = bpy.context
@@ -570,8 +585,10 @@ def _deferred_rebuild():
 
 
 def queue_rebuild(obj, delay=0.25):
+    """Coalesce; holds the NAME, never the object — a bpy reference kept
+    across frames dies with a ReferenceError if the object is deleted."""
     first = _PENDING["obj"] is None
-    _PENDING["obj"] = obj
+    _PENDING["obj"] = obj.name
     if first:
         bpy.app.timers.register(_deferred_rebuild, first_interval=delay)
 
@@ -809,6 +826,181 @@ class NXLOOM_OT_ring_cut(bpy.types.Operator):
             self._cleanup(context)
             return {"CANCELLED"}
         return {"RUNNING_MODAL"}
+
+
+def commit_halo(graph, surface, center_ray, edge_ray, arc_type="flow", k=4,
+                bridge_to=None, samples=48):
+    """A closed ring around a point — the eye-socket and mouth gesture.
+
+    A circle in the tangent plane at the centre, projected onto the surface.
+    For socket-scale radii the projection is faithful; a halo the size of the
+    whole head is a job for ring cut, not this. The first node is anchored
+    where the drag was released, so the artist chooses where the ring's
+    corners sit — and two concentric halos bridge into an instant loop band.
+    """
+    from ..core.contour import ring_segments
+
+    center = ray_surface(surface, *center_ray)
+    edge = ray_surface(surface, *edge_ray)
+    if center is None or edge is None:
+        return None
+    r = float(np.linalg.norm(edge - center))
+    if r < 1e-6:
+        return None
+
+    n = surface.normal_at(center)
+    n = n / max(np.linalg.norm(n), 1e-12)
+    t = edge - center
+    t = t - n * (t @ n)
+    if float(np.linalg.norm(t)) < 1e-9:
+        return None
+    t /= np.linalg.norm(t)
+    b = np.cross(n, t)
+
+    ang = np.linspace(0.0, 2.0 * np.pi, samples, endpoint=False)
+    circle = center + r * (np.cos(ang)[:, None] * t + np.sin(ang)[:, None] * b)
+    circle = surface.project(circle)
+    loop = np.vstack([circle, circle[:1]])
+
+    res = ring_segments(loop, k=k, start_at=edge)
+    if res is None:
+        return None
+    nodes_pts, paths = res
+    node_ids = [new_node(graph, pt, surface) for pt in nodes_pts]
+    arc_ids = [add_arc(graph, node_ids[j], node_ids[(j + 1) % k], paths[j],
+                       surface, type=arc_type, rail="surface")
+               for j in range(k)]
+
+    bridged = None
+    if bridge_to and all(nid in graph.nodes for nid in bridge_to) \
+            and len(bridge_to) == k:
+        bridged = bridge_rings(graph, surface, list(bridge_to), node_ids,
+                               arc_type=arc_type)
+    return node_ids, arc_ids, bridged
+
+
+class NXLOOM_OT_halo(bpy.types.Operator):
+    """Drag outward from a point to ring it — eye sockets, mouths, any opening"""
+
+    bl_idname = "nxloom.halo"
+    bl_label = "Halo"
+    bl_options = {"REGISTER", "UNDO", "BLOCKING"}
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        self.graph = get_graph(obj)
+        self.surface = _surface_of(self.graph, context) if self.graph else None
+        if self.surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
+            return {"CANCELLED"}
+        self.center_ray = _mouse_ray(context, event)
+        self.center = ray_surface(self.surface, *self.center_ray)
+        if self.center is None:
+            self.report({"WARNING"}, "Start on the surface")
+            return {"CANCELLED"}
+        context.window.cursor_modal_set("CROSSHAIR")
+        context.window_manager.modal_handler_add(self)
+        context.workspace.status_text_set(
+            "Drag outward to size the halo, release to place — Esc cancels")
+        return {"RUNNING_MODAL"}
+
+    def _cleanup(self, context):
+        context.window.cursor_modal_restore()
+        context.workspace.status_text_set(None)
+        overlay.clear_preview()
+
+    def _preview_circle(self, edge):
+        r = float(np.linalg.norm(edge - self.center))
+        if r < 1e-6:
+            return None
+        n = self.surface.normal_at(self.center)
+        n = n / max(np.linalg.norm(n), 1e-12)
+        t = edge - self.center
+        t = t - n * (t @ n)
+        if float(np.linalg.norm(t)) < 1e-9:
+            return None
+        t /= np.linalg.norm(t)
+        b = np.cross(n, t)
+        ang = np.linspace(0.0, 2.0 * np.pi, 33)
+        ring = self.center + r * (np.cos(ang)[:, None] * t
+                                  + np.sin(ang)[:, None] * b)
+        return self.surface.project(ring)
+
+    def modal(self, context, event):
+        if event.type == "MOUSEMOVE":
+            edge = ray_surface(self.surface, *_mouse_ray(context, event))
+            if edge is not None:
+                path = self._preview_circle(edge)
+                if path is not None:
+                    overlay.set_preview(path=path, anchor=self.center)
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self._cleanup(context)
+            st = context.scene.nx_loom
+            obj = active_object(context)
+            prev = list(obj.get("nx_loom_last_ring", []) or []) \
+                if st.bridge_rings else None
+            res = commit_halo(self.graph, self.surface, self.center_ray,
+                              _mouse_ray(context, event),
+                              arc_type=st.arc_type, bridge_to=prev)
+            if res is None:
+                self.report({"WARNING"}, "Drag outward on the surface to size "
+                                         "the halo")
+                return {"CANCELLED"}
+            node_ids, _, bridged = res
+            obj["nx_loom_last_ring"] = [int(n) for n in node_ids]
+            refresh(obj, self.graph, context, rebuild=st.rebuild_on_draw)
+            bpy.ops.ed.undo_push(message="NX Loom: halo")
+            self.report({"INFO"}, "Halo bridged to the previous ring"
+                        if bridged else "Halo of 4 arcs")
+            return {"FINISHED"}
+
+        if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
+            self._cleanup(context)
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+
+class NXLOOM_OT_smooth_arcs(bpy.types.Operator):
+    """Fair hand jitter out of the selected arc, or all freehand arcs"""
+
+    bl_idname = "nxloom.smooth_arcs"
+    bl_label = "Smooth Arcs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
+    def execute(self, context):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        surface = _surface_of(graph, context)
+        project = surface.project if surface is not None else None
+        aid = active_arc(obj)
+        targets = [aid] if aid is not None and aid in graph.arcs else [
+            a for a, arc in graph.arcs.items()
+            if arc.rail == "surface" and arc.mirror_of is None]
+        n = 0
+        for a in targets:
+            arc = graph.arcs[a]
+            if len(arc.path) < 4:
+                continue
+            arc.path = fair_path(arc.path, iters=10, strength=0.5,
+                                 project=project)
+            if surface is not None:
+                arc.pins = [surface.pin(pt) for pt in arc.path]
+            n += 1
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"}, f"{n} arc(s) smoothed")
+        return {"FINISHED"}
 
 
 class NXLOOM_OT_hover(bpy.types.Operator):
@@ -1054,6 +1246,8 @@ class NXLOOM_OT_toggle_hole(bpy.types.Operator):
 _CLASSES = (
     NXLOOM_OT_draw_arc,
     NXLOOM_OT_ring_cut,
+    NXLOOM_OT_halo,
+    NXLOOM_OT_smooth_arcs,
     NXLOOM_OT_hover,
     NXLOOM_OT_adjust_loops,
     NXLOOM_OT_select_arc,

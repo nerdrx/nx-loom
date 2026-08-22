@@ -150,6 +150,27 @@ def resolve_anchor(graph, point, radius, surface=None):
     return new_node(graph, point, surface), "new"
 
 
+def fair_path(path, iters=12, strength=0.5, project=None):
+    """Gently relax a polyline's interior, keeping its endpoints exact.
+
+    A freehand stroke carries every wobble of the hand, and a wobbly arc
+    becomes a wobbly edge loop in every mesh generated from it forever. Light
+    tangential fairing removes the jitter while leaving the deliberate shape
+    of the curve — this is a low-pass filter, not a straightener. Reprojection
+    keeps the faired line on the surface rather than cutting corners through
+    it.
+    """
+    p = np.asarray(path, dtype=float).copy()
+    if len(p) < 3 or iters <= 0 or strength <= 0.0:
+        return p
+    w = min(max(strength, 0.0), 1.0) * 0.5
+    for it in range(iters):
+        p[1:-1] += w * (p[:-2] + p[2:] - 2.0 * p[1:-1])
+        if project is not None and (it % 3 == 2 or it == iters - 1):
+            p[1:-1] = project(p[1:-1])
+    return p
+
+
 def decimate(path, min_step):
     """Drop samples closer together than min_step. Endpoints always survive."""
     path = np.asarray(path, dtype=float)

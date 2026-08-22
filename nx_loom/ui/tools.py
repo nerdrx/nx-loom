@@ -21,7 +21,8 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         "Ctrl+Wheel: pin the loop count across the arc under the cursor\n"
         "Ctrl+Alt+Wheel: more or less resolution inside one patch\n"
         "Alt+Shift: select an arc, then type its loop count in the sidebar\n"
-        "Ctrl+Alt: swipe across a limb to ring it in one stroke"
+        "Ctrl+Alt: swipe across a limb to ring it in one stroke\n"
+        "Ctrl+Alt+Shift: drag outward from a point to halo it (eyes, mouths)"
     )
     bl_icon = "ops.mesh.knife_tool"
     bl_widget = None
@@ -31,6 +32,9 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         ("nxloom.erase", {"type": "LEFTMOUSE", "value": "PRESS", "ctrl": True}, None),
         ("nxloom.ring_cut",
          {"type": "LEFTMOUSE", "value": "PRESS", "ctrl": True, "alt": True}, None),
+        ("nxloom.halo",
+         {"type": "LEFTMOUSE", "value": "PRESS",
+          "ctrl": True, "alt": True, "shift": True}, None),
         ("nxloom.move_node", {"type": "LEFTMOUSE", "value": "PRESS", "shift": True}, None),
         ("nxloom.set_arc_type",
          {"type": "LEFTMOUSE", "value": "PRESS", "alt": True}, None),
