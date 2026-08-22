@@ -1,5 +1,7 @@
 # Where this can go
 
+> Items 1, 2 and 3 shipped in 0.8.0 and 0.9.0. Kept here for the reasoning.
+
 Ideas ranked by what the architecture makes *uniquely* possible, not by how
 nice they would be. The layout being the document — a graph of barycentric pins
 plus a topology, with a global integer solve over it — is the thing that buys

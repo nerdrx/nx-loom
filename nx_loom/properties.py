@@ -112,6 +112,12 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "Off, an edit stays exactly where you made it",
         default=False,
     )
+    retarget_to: PointerProperty(
+        name="Retarget To",
+        type=bpy.types.Object,
+        description="Move this layout onto another mesh, keeping its topology",
+        poll=lambda self, obj: obj.type == "MESH",
+    )
     fill_background: BoolProperty(
         name="Fill Background Region",
         description="Fill the leftover region too. A loop drawn around a limb "

@@ -199,6 +199,22 @@ class NXLOOM_PT_finish(_Sub, bpy.types.Panel):
         layout.operator("nxloom.apply", icon="CHECKMARK")
 
 
+class NXLOOM_PT_retarget(_Sub, bpy.types.Panel):
+    bl_label = "Retarget"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        st = context.scene.nx_loom
+        layout.label(text="Move this layout onto")
+        layout.label(text="another mesh, topology and")
+        layout.label(text="all. Landmarks come from")
+        layout.label(text="shared bone names if both")
+        layout.label(text="meshes are rigged.")
+        layout.prop(st, "retarget_to")
+        layout.operator("nxloom.retarget", icon="MOD_MESHDEFORM")
+
+
 class NXLOOM_PT_uv(_Sub, bpy.types.Panel):
     bl_label = "UVs"
     bl_options = {"DEFAULT_CLOSED"}
@@ -271,7 +287,8 @@ class NXLOOM_PT_stats(_Sub, bpy.types.Panel):
 
 
 _CLASSES = (NXLOOM_PT_main, NXLOOM_PT_size, NXLOOM_PT_symmetry,
-            NXLOOM_PT_edits, NXLOOM_PT_uv, NXLOOM_PT_lods,
+            NXLOOM_PT_edits, NXLOOM_PT_retarget, NXLOOM_PT_uv,
+            NXLOOM_PT_lods,
             NXLOOM_PT_finish,
             NXLOOM_PT_display, NXLOOM_PT_stats)
 

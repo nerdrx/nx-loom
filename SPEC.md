@@ -316,6 +316,32 @@ booleans, and `None` means preserve everything.
 Transfer is opt-out (`scene.nx_loom.transfer_data`) and never fatal — a failure
 is reported as a warning and Apply still completes.
 
+## 6a. Retargeting **[frozen]**
+
+`core/retarget.py`. A layout moves from one mesh onto another; the topology is
+untouched by construction — only positions and pins change, so holes, seams,
+arc types and locked counts all survive.
+
+This is the thing a pinned graph can do that a mesh cannot. A retopologised
+mesh is vertices: positions on one specific surface, meaningless anywhere else.
+A layout describes *intent*, and intent transfers.
+
+A 3D thin-plate spline is fitted to landmark pairs (kernel `U(r) = r`), every
+node and arc sample is warped through it, then projected onto the target and
+re-pinned. Under four landmarks there is not enough to determine an affine
+part, so the fit degrades to a least-squares similarity rather than producing
+nonsense.
+
+Landmarks come from whatever the two models already agree on, in order:
+**matching bone names** (two humanoid rigs share them — a dense, anatomical
+correspondence sitting right there, and far better than anything inferred from
+the shapes), then **matching empties** parented to each mesh, then **bounding
+box corners**, which know nothing about anatomy and are a starting point to
+edit rather than an answer.
+
+Being ninety percent right is *useful* here, which is the whole reason this
+works: the output is an ordinary editable layout, not a mesh to repair.
+
 ## 6b. Derived outputs
 
 Both fall out of the layout being the document; neither is a new solver.

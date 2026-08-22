@@ -41,6 +41,21 @@ and NX Loom generates the mesh. Quad patches get a discrete Coons grid;
 3-, 5- and 6-sided patches (where the poles live) get split templates. Interiors
 relax and reproject onto the reference.
 
+### Draw a topology once, reuse it forever
+
+**Retarget** moves a layout from one mesh onto another, topology and all. A
+retopologised *mesh* is vertices — positions on one specific surface,
+meaningless anywhere else. A *layout* is intent, and intent transfers.
+
+Landmarks come from whatever the two models already agree on. If both are
+rigged, **matching bone names** give a dense anatomical correspondence for
+free — no setup at all. Otherwise matching empties, or bounding boxes as a
+rough start.
+
+Holes, seams, arc types and locked loop counts all survive the move, because
+only the positions change. And being ninety percent right is genuinely useful
+here: what lands is an editable layout, not a mesh to repair.
+
 ### UVs with nothing to infer
 
 An unwrapper has to guess a parameterisation from a triangle soup and relax it.
@@ -118,14 +133,14 @@ solve.
 
 ## Status
 
-**v0.8.0 — drawn, symmetric, budgeted, unwrapped, LOD'd, applied with your data intact.**
+**v0.9.0 — draw a topology once, then reuse it on every model you own.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
 rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 190 headless
+layouts — including a layout *drawn from nothing* on a sphere. 206 headless
 checks plus 8 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.

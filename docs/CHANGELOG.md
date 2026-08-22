@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.9.0 — unreleased
+
+**Layout retargeting.** Move a layout from one mesh onto another, topology and
+all. Draw your face topology once and drop it on every avatar you own.
+
+A retopologised mesh is vertices — positions on one specific surface, and
+meaningless anywhere else. A layout is intent, and intent transfers. A 3D
+thin-plate spline is fitted to landmark pairs, every node and arc sample is
+warped through it, then projected onto the target and re-pinned. The topology
+is untouched by construction, so holes, seams, arc types and locked counts all
+survive the move.
+
+Landmarks come from whatever the two models already agree on:
+
+- **Matching bone names.** Two humanoid rigs already share them, which is a
+  dense anatomical correspondence sitting right there — far better than
+  anything inferable from the shapes alone.
+- **Matching empties** parented to each mesh.
+- **Bounding box corners**, which know nothing about anatomy and are a starting
+  point to edit rather than an answer.
+
+Under four landmarks the fit degrades to a least-squares similarity rather than
+producing nonsense.
+
+Measured on a sphere retargeted onto an offset, squashed sphere: topology
+identical (266 nodes, 552 arcs, 288 patches), every node re-pinned, holes and
+seams preserved, and the rebuilt mesh lands on the target with 0.0000 max
+deviation.
+
+206 headless checks + 8 GUI checks.
+
+
 ## 0.8.0 — unreleased
 
 Two things the layout-as-document model gets almost for free.
