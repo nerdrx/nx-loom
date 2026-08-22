@@ -53,8 +53,13 @@ def coons(sides):
     return grid
 
 
-def grid_quads(p, q, base=0):
-    """Index quads for a (p+1) x (q+1) grid flattened row-major over i."""
+def grid_quads(p, q, base=0, lattice=None):
+    """Index quads for a (p+1) x (q+1) grid flattened row-major over i.
+
+    When ``lattice`` is a list it is filled with the (i, j) of each quad's four
+    corners, in the same order. That is the patch's own parameterisation, and
+    it is what the UV pass lays out — there is nothing to infer.
+    """
     out = []
     for i in range(p):
         for j in range(q):
@@ -64,6 +69,8 @@ def grid_quads(p, q, base=0):
                 base + (i + 1) * (q + 1) + j + 1,
                 base + i * (q + 1) + j + 1,
             ))
+            if lattice is not None:
+                lattice.append(((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)))
     return out
 
 
@@ -108,7 +115,8 @@ def fill_quad_patch(sides):
     grid = coons(sides)
     p, q = grid.shape[0] - 1, grid.shape[1] - 1
     verts = grid.reshape(-1, 3)
-    quads = grid_quads(p, q)
+    lattice = []
+    quads = grid_quads(p, q, lattice=lattice)
 
     slots = {}
     for i in range(p + 1):
@@ -126,7 +134,7 @@ def fill_quad_patch(sides):
     for i in range(1, p):
         for j in range(1, q):
             params[i * (q + 1) + j] = (i / p, j / q)
-    return verts, quads, slots, fixed, params
+    return verts, quads, slots, fixed, params, {"dims": (p, q), "lattice": lattice}
 
 
 def fill_ngon_patch(sides):
@@ -173,6 +181,7 @@ def fill_ngon_patch(sides):
 
     # 3. one tensor block per corner: [split_{i-1} .. corner_i .. split_i] x spokes
     quads = []
+    lattice, block_of, block_dims = [], [], []
     for i in range(n):
         prev = (i - 1) % n
         row_b = [side_idx[i][k] for k in range(0, a[i] + 1)]              # corner_i -> split_i
@@ -208,6 +217,9 @@ def fill_ngon_patch(sides):
             for y in range(ny_):
                 quads.append((block[x][y], block[x + 1][y],
                               block[x + 1][y + 1], block[x][y + 1]))
+                lattice.append(((x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)))
+                block_of.append(i)
+        block_dims.append((nx_, ny_))
 
     slots = {}
     for i in range(n):
@@ -218,11 +230,13 @@ def fill_ngon_patch(sides):
     fixed = np.zeros(len(verts), dtype=bool)
     for v in slots.values():
         fixed[v] = True
-    return verts, quads, slots, fixed, None
+    return verts, quads, slots, fixed, None, {"blocks": block_dims,
+                                              "block_of": block_of,
+                                              "lattice": lattice}
 
 
 def fill_patch(sides, relax_iters=20, project=None):
-    """Dispatch on side count. Returns (verts, quads, slots, params) or None.
+    """Dispatch on side count. Returns (verts, quads, slots, params, chart).
 
     ``params`` maps interior vertex index -> (u, v) for quad patches, and is
     None for everything else. That is what lets a hand edit on a quad patch be
@@ -238,7 +252,7 @@ def fill_patch(sides, relax_iters=20, project=None):
         return None
     if res is None:
         return None
-    verts, quads, slots, fixed, params = res
+    verts, quads, slots, fixed, params, chart = res
     if relax_iters:
         verts = relax(verts, quads, fixed, iters=relax_iters, project=project)
-    return verts, quads, slots, params
+    return verts, quads, slots, params, chart

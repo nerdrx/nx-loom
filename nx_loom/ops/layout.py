@@ -407,6 +407,54 @@ class NXLOOM_OT_apply(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NXLOOM_OT_generate_uvs(bpy.types.Operator):
+    """Unwrap straight from the layout — the patch grid IS the UV grid"""
+
+    bl_idname = "nxloom.generate_uvs"
+    bl_label = "UVs from Layout"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj
+                    and len(obj.data.polygons) > 0)
+
+    def execute(self, context):
+        from ..core import uv as uv_mod
+
+        obj = active_object(context)
+        report = rebuild_object(obj, context)
+        if not report:
+            return {"CANCELLED"}
+        graph = get_graph(obj)
+        mw = obj.matrix_world
+        world = [tuple(mw @ v.co) for v in obj.data.vertices]
+        faces = [tuple(p.vertices) for p in obj.data.polygons]
+        packed = uv_mod.layout_uvs(graph, report.get("counts", {}), report,
+                                   verts=world, quads=faces)
+        coords, uv_info = packed if packed else (None, {})
+        if coords is None or len(coords) != len(obj.data.polygons):
+            self.report({"ERROR"}, "Could not lay out UVs — rebuild first")
+            return {"CANCELLED"}
+
+        me = obj.data
+        layer = me.uv_layers.get("NXLoom") or me.uv_layers.new(name="NXLoom")
+        me.uv_layers.active = layer
+        flat = []
+        for poly, quad in zip(me.polygons, coords):
+            for k in range(len(poly.loop_indices)):
+                flat.extend(quad[k] if k < len(quad) else quad[-1])
+        layer.data.foreach_set("uv", flat)
+        me.update()
+
+        obj["nx_loom_uv_islands"] = uv_info.get("islands", 0)
+        self.report({"INFO"},
+                    f"{uv_info.get('islands', 0)} island(s) from "
+                    f"{len(graph.patches)} patches onto {len(me.polygons)} faces")
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_activate_draw_tool(bpy.types.Operator):
     """Switch to the Loom Draw tool in the toolbar"""
 
@@ -480,6 +528,7 @@ class NXLOOM_OT_frame_problem(bpy.types.Operator):
 
 _CLASSES = (
     NXLOOM_OT_new_layout,
+    NXLOOM_OT_generate_uvs,
     NXLOOM_OT_activate_draw_tool,
     NXLOOM_OT_toggle_reference,
     NXLOOM_OT_frame_problem,

@@ -316,6 +316,46 @@ booleans, and `None` means preserve everything.
 Transfer is opt-out (`scene.nx_loom.transfer_data`) and never fatal — a failure
 is reported as a warning and Apply still completes.
 
+## 6b. Derived outputs
+
+Both fall out of the layout being the document; neither is a new solver.
+
+### LODs
+
+`nxloom.make_lods` re-solves the same layout at successively smaller budgets.
+The patch structure does not change — only the subdivision counts — so every
+level is the same surface at a different resolution and every level takes its
+UVs, materials, weights and shape keys from the same source. That is the part
+a decimator cannot promise, and the reason LODs are normally painful.
+
+A layout has a **structural face floor** (`build.floor_faces`): every side of a
+non-quad patch needs at least two segments, so N patches cost faces no matter
+what. Asking for fewer is not a solver failure — it is a request the layout
+cannot represent, and the answer is a coarser *layout*. LOD emission stops at
+the floor and says so rather than emitting duplicate levels.
+
+### UVs
+
+`core/uv.py`. An unwrapper infers a parameterisation from a triangle soup and
+relaxes it. There is nothing to infer here: a quad patch **is** a `p x q` grid.
+
+Neighbouring patches merge into one island by propagating a rigid lattice
+transform across a shared arc — possible only because the quantiser guarantees
+both sides of that arc carry the same count. Merging stops at three things: an
+arc typed `seam`, a placement that would overlap what is already laid down (a
+surface that closes on itself must be cut, and the cut lands where the walk
+meets itself), and a side whose counts do not line up.
+
+A seam prevents *merging*; it does not force a *split*. A cut through the
+middle of a flat sheet leaves it connected round the ends and nothing needs to
+open. Ringing a patch does separate it.
+
+Islands are scaled by their true 3D face area over their cell count, so texel
+density is even — measured 1.000x on a uniform layout, 1.5x on a drawn sphere.
+Deriving the area from the patch instead is wrong for n-sided patches, whose
+sub-blocks each get credited with the whole patch's area. n-sided patches
+unwrap per sub-block, which fragments poles; merging those is future work.
+
 ## 7. Suggestion lanes
 
 Suggestions, not automation. Each lane emits *candidate arcs* into the layout,

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.0 — unreleased
+
+Two things the layout-as-document model gets almost for free.
+
+**LOD sets from one layout.** `Make LODs` re-solves the same layout at smaller
+budgets. The patch structure is untouched, so every level is the same surface
+at a different resolution — UVs, seams, materials, weights and shape keys all
+match across levels, from the same source. Verified: weights still correlate
+1.000 with the source gradient at the coarsest level.
+
+A layout also now reports its **structural face floor**. N patches cost faces
+no matter what, so asking for fewer is a request the layout cannot represent.
+LOD emission stops there and says so rather than emitting identical levels, and
+the Size panel warns when a budget is below it.
+
+**UVs straight from the layout.** `UVs from Layout` unwraps with nothing
+inferred — a quad patch *is* a `p x q` grid. Adjacent patches merge into one
+island by propagating a rigid lattice transform across shared arcs, which works
+only because the quantiser guarantees matching counts there. Arcs typed `seam`
+stop the merge; a surface that closes on itself gets cut where the walk meets
+itself.
+
+- Texel density measured **1.000x on a uniform layout**, 1.5x on a drawn
+  sphere, and every face lands inside 0..1 with no degenerate UVs.
+- A doubly-closed surface (torus) unwraps without folding over itself.
+- A seam stops islands *merging*; it does not force a *split*. A cut through
+  the middle of a flat sheet leaves it connected round the ends and nothing
+  needs to open — ringing a patch does separate it.
+
+Deriving island area from the patch rather than from the faces was wrong for
+n-sided patches, whose sub-blocks each got credited with the whole patch's
+area and came out ~n times too large — 16x-25x texel spread before the fix.
+
+190 headless checks + 8 GUI checks.
+
+
 ## 0.7.0 — unreleased
 
 Mirrored hand edits, a face budget, and a usability pass.

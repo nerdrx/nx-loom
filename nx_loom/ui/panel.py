@@ -126,6 +126,16 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
                 off = abs(n - st.target_count) / max(st.target_count, 1) * 100.0
                 layout.label(text=f"{n} faces  ({off:.0f}% off budget)",
                              icon="MESH_GRID")
+            graph = get_graph(obj)
+            if graph is not None and graph.patches:
+                from ..core.build import floor_faces
+                fl = floor_faces(graph, st.fill_background)
+                if st.target_count < fl:
+                    col = layout.column(align=True)
+                    col.alert = True
+                    col.label(text=f"Layout floor is {fl} faces", icon="ERROR")
+                    col.label(text="Fewer needs a coarser layout,")
+                    col.label(text="not a coarser solve.")
         else:
             layout.prop(st, "target_edge")
         col = layout.column(align=True)
@@ -189,6 +199,30 @@ class NXLOOM_PT_finish(_Sub, bpy.types.Panel):
         layout.operator("nxloom.apply", icon="CHECKMARK")
 
 
+class NXLOOM_PT_uv(_Sub, bpy.types.Panel):
+    bl_label = "UVs"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Each patch is already a grid,")
+        layout.label(text="so there is nothing to infer.")
+        layout.label(text="Arcs typed Seam cut islands.")
+        layout.operator("nxloom.generate_uvs", icon="UV")
+
+
+class NXLOOM_PT_lods(_Sub, bpy.types.Panel):
+    bl_label = "LODs"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Every level shares this")
+        layout.label(text="layout's structure, so UVs")
+        layout.label(text="and seams match across them.")
+        layout.operator("nxloom.make_lods", icon="MOD_DECIM")
+
+
 class NXLOOM_PT_display(_Sub, bpy.types.Panel):
     bl_label = "Display"
     bl_options = {"DEFAULT_CLOSED"}
@@ -237,8 +271,9 @@ class NXLOOM_PT_stats(_Sub, bpy.types.Panel):
 
 
 _CLASSES = (NXLOOM_PT_main, NXLOOM_PT_size, NXLOOM_PT_symmetry,
-            NXLOOM_PT_edits, NXLOOM_PT_finish, NXLOOM_PT_display,
-            NXLOOM_PT_stats)
+            NXLOOM_PT_edits, NXLOOM_PT_uv, NXLOOM_PT_lods,
+            NXLOOM_PT_finish,
+            NXLOOM_PT_display, NXLOOM_PT_stats)
 
 
 def register():

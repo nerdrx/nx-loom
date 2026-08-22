@@ -41,6 +41,29 @@ and NX Loom generates the mesh. Quad patches get a discrete Coons grid;
 3-, 5- and 6-sided patches (where the poles live) get split templates. Interiors
 relax and reproject onto the reference.
 
+### UVs with nothing to infer
+
+An unwrapper has to guess a parameterisation from a triangle soup and relax it.
+There is nothing to guess here: a quad patch **is** a grid. Adjacent patches
+merge into one island by propagating a lattice transform across shared arcs —
+which works only because the quantiser guarantees matching counts there — and
+arcs you typed **Seam** stop the merge.
+
+Measured: **1.000x texel density on a uniform layout**, 1.5x on a drawn sphere,
+everything inside 0..1, no degenerate faces. A torus, which closes on itself
+both ways, gets cut where the walk meets itself.
+
+### A whole LOD set from one layout
+
+Re-solving at a smaller budget changes the counts and *not the patch
+structure*, so every level is the same surface at a different resolution. UVs,
+seams, materials, weights and shape keys match across levels because they come
+from the same source onto the same structure — which is exactly why LODs are
+normally painful.
+
+Layouts have a structural face floor (N patches cost faces), and LOD emission
+stops there and tells you, instead of handing you three identical levels.
+
 ### A face budget, not just an edge length
 
 Game work is specified in faces, not millimetres. `Size By: Face Count` solves
@@ -95,14 +118,14 @@ solve.
 
 ## Status
 
-**v0.7.0 — symmetric, drawn, edited, budgeted, applied with your data intact.**
+**v0.8.0 — drawn, symmetric, budgeted, unwrapped, LOD'd, applied with your data intact.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
 rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 164 headless
+layouts — including a layout *drawn from nothing* on a sphere. 190 headless
 checks plus 8 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.

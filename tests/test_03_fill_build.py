@@ -69,7 +69,7 @@ def run():
         if res is None:
             out.append((f"fill {counts}", False, "returned None"))
             continue
-        v, q, _, _ = res
+        v, q, *_ = res
         st = _check(v, q)
         ok = (st["orphans"] == 0 and st["nonmanifold"] == 0
               and st["euler"] == 1 and st["boundary"] == sum(counts))

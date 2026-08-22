@@ -86,6 +86,24 @@ def estimate_quads(graph, target_edge, fill_background=False):
     return total
 
 
+def floor_faces(graph, fill_background=False):
+    """Fewest faces this layout can express.
+
+    A layout of N patches has a hard minimum: every side of a non-quad patch
+    needs at least two segments, so the structure itself costs faces. Asking
+    for fewer is not a solver failure, it is a request the layout cannot
+    represent — the answer is a coarser *layout*, not a coarser solve.
+    """
+    if not graph.patches:
+        return 0
+    span = 0.0
+    for pid in graph.patches:
+        pts = graph.patch_boundary(pid)
+        if len(pts):
+            span = max(span, float(np.linalg.norm(pts.max(axis=0) - pts.min(axis=0))))
+    return estimate_quads(graph, max(span * 4.0, 1.0), fill_background)
+
+
 def solve_edge_for_count(graph, target_count, fill_background=False,
                          tol=0.02, max_iter=40):
     """Target edge length that yields ~target_count faces.
@@ -187,6 +205,8 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
 
     quads = []
     quad_patch = []
+    quad_lattice = []
+    charts = {}
     failed = []
     holes = []
     background = set() if fill_background else background_patches(graph)
@@ -214,7 +234,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
         if res is None:
             failed.append((pid, "no valid split"))
             continue
-        loc_verts, loc_quads, slots, params = res
+        loc_verts, loc_quads, slots, params, chart = res
 
         remap = {}
         for (_, si, k), loc in slots.items():
@@ -237,6 +257,8 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
             continue
         quads.extend(patch_quads)
         quad_patch.extend([pid] * len(patch_quads))
+        charts[pid] = chart
+        quad_lattice.extend(chart["lattice"])
 
     used = {i for q in quads for i in q}
     keep = sorted(used)
@@ -253,6 +275,9 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
         "holes": holes,
         "background": sorted(background),
         "quad_patch": quad_patch,
+        "quad_lattice": quad_lattice,
+        "counts": counts,
+        "charts": charts,
         "dropped_verts": len(verts) - len(out_verts),
         "target_edge": target_edge,
     })
