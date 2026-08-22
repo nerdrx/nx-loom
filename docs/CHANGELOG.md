@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.1 — unreleased
+
+**Type the loop count instead of scrolling to it.** Alt+Shift click an arc to
+select it — it is drawn in pink with its count shown — then type an exact
+number in the Size panel. Ctrl+Wheel also selects whatever it adjusts, so an
+overshoot can be corrected by typing rather than scrolling back.
+
+**Unpin one arc.** `Unpin Arc` clears just the selected one; `Clear Loop Pins`
+still clears everything.
+
+**Fixed the overshoot itself.** Every wheel notch rebuilt the mesh
+immediately, so on a heavy layout the wheel events queued up behind the
+rebuilds and the count sailed past whatever was wanted. The pin now lands at
+once and the mesh catches up ~0.25s after the wheel stops, coalescing a whole
+burst into a single rebuild.
+
+261 headless checks + 10 GUI checks.
+
+
 ## 0.10.0 — unreleased
 
 **Per-patch density.** Ctrl+Alt+Wheel over a patch asks for more or less

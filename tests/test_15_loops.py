@@ -124,6 +124,7 @@ def run():
                     f"unsatisfied {rep['unsatisfied_patches']}"))
 
     out += run_patch_density()
+    out += run_typed_loops()
     return out
 
 
@@ -185,4 +186,79 @@ def run_patch_density():
             if k[0] == "nxloom.adjust_patch_density"]
     out.append(("Ctrl+Alt+Wheel is bound both ways", len(keys) == 2,
                 str([k[1]["type"] for k in keys])))
+    return out
+
+
+def run_typed_loops():
+    """Selecting an arc and typing an exact count, and unpinning just one."""
+    from nx_loom.ops.draw import (ACTIVE_KEY, active_arc, apply_active_loops,
+                                  set_active_arc)
+
+    out = []
+    obj = _grid_layout(n=3, target_edge=0.3)
+    graph = get_graph(obj)
+    aid = sorted(graph.arcs)[0]
+
+    out.append(("nothing is selected to begin with", active_arc(obj) is None, ""))
+    set_active_arc(obj, aid)
+    out.append(("an arc can be selected", active_arc(obj) == aid, str(active_arc(obj))))
+
+    # typing a number pins it to exactly that, no scrolling involved
+    for want in (9, 3, 12):
+        apply_active_loops(bpy.context, want)
+        graph = get_graph(obj)
+        got = graph.arcs[aid].n
+        if got != want:
+            out.append((f"typing {want} pins exactly", False, f"got {got}"))
+            break
+    else:
+        out.append(("typing a number pins exactly that count", True,
+                    "9, 3 and 12 all landed"))
+
+    out.append(("and it is recorded as a pin",
+                get_graph(obj).arcs[aid].n_lock == 12, ""))
+    st = _clean(obj)
+    out.append(("the mesh still closes around a typed pin",
+                st["nm"] == 0 and st["nonquad"] == 0, str(st)))
+
+    # the scene field is what the panel types into
+    bpy.context.scene.nx_loom.active_loops = 5
+    out.append(("the panel field applies straight through",
+                get_graph(obj).arcs[aid].n == 5,
+                str(get_graph(obj).arcs[aid].n)))
+
+    # unpin just this one, leaving others alone
+    other = sorted(graph.arcs)[1]
+    g = get_graph(obj)
+    g.arcs[other].n_lock = 4
+    set_graph(obj, g)
+    rebuild_object(obj, bpy.context)
+    res = bpy.ops.nxloom.unpin_arc()
+    g = get_graph(obj)
+    out.append(("unpinning one arc leaves the others pinned",
+                "FINISHED" in res and g.arcs[aid].n_lock is None
+                and g.arcs[other].n_lock == 4,
+                f"selected={g.arcs[aid].n_lock}, other={g.arcs[other].n_lock}"))
+
+    out.append(("unpin is unavailable when nothing is pinned",
+                not bpy.ops.nxloom.unpin_arc.poll(), ""))
+
+    # a burst of wheel notches must not each trigger a rebuild
+    from nx_loom.ops import draw as draw_ops
+    draw_ops._PENDING["obj"] = None
+    draw_ops.queue_rebuild(obj)
+    first = draw_ops._PENDING["obj"] is not None
+    draw_ops.queue_rebuild(obj)
+    draw_ops.queue_rebuild(obj)
+    out.append(("repeated adjustments coalesce into one pending rebuild",
+                first and draw_ops._PENDING["obj"] is obj, ""))
+    draw_ops._deferred_rebuild()
+    out.append(("and the pending rebuild clears once it runs",
+                draw_ops._PENDING["obj"] is None, ""))
+
+    from nx_loom.ui.tools import NXLOOM_TOOL_draw
+    sel = [k for k in NXLOOM_TOOL_draw.bl_keymap if k[0] == "nxloom.select_arc"]
+    out.append(("Alt+Shift click selects an arc",
+                len(sel) == 1 and sel[0][1].get("alt") and sel[0][1].get("shift"),
+                str(sel)))
     return out

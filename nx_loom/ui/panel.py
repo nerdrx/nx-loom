@@ -143,12 +143,32 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
         col.prop(st, "reproject")
         col.prop(st, "fill_background")
 
-        graph = get_graph(active_object(context))
+        obj = active_object(context)
+        graph = get_graph(obj)
         pinned = sum(1 for a in graph.arcs.values() if a.n_lock) if graph else 0
+
         box = layout.box()
-        box.label(text="Ctrl+Wheel over an arc pins")
-        box.label(text="its loop count; the solve")
-        box.label(text="propagates it everywhere.")
+        box.label(text="Loops", icon="MOD_ARRAY")
+
+        from ..ops.draw import active_arc
+        aid = active_arc(obj)
+        arc = graph.arcs.get(aid) if (graph and aid is not None) else None
+        if arc is not None:
+            col = box.column(align=True)
+            col.label(text=f"Arc {aid}"
+                           + ("  (pinned)" if arc.n_lock else "  (solved)"),
+                      icon="PINNED" if arc.n_lock else "DECORATE")
+            col.prop(st, "active_loops")
+            row = col.row(align=True)
+            row.enabled = bool(arc.n_lock)
+            row.operator("nxloom.unpin_arc", icon="UNLINKED")
+        else:
+            box.label(text="Alt+Shift click an arc to")
+            box.label(text="select it, then type its")
+            box.label(text="loop count here.")
+
+        box.separator()
+        box.label(text="Or Ctrl+Wheel over an arc.")
         if pinned:
             row = box.row()
             row.label(text=f"{pinned} arc(s) pinned", icon="PINNED")

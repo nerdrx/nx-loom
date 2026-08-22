@@ -438,6 +438,7 @@ Blender binding is displaced:
 | Ctrl-Shift-click | toggle a patch between filled and a hole |
 | Ctrl-Wheel | pin the loop count across the arc under the cursor |
 | Ctrl-Alt-Wheel | more or less resolution inside one patch |
+| Alt-Shift-click | select an arc, to type its loop count in the sidebar |
 | Esc / RMB | end the chain; again to leave the tool |
 
 Straight segments are traced by **interpolating rays, not world positions** —
@@ -467,6 +468,11 @@ while you are drawing, not discovered later as a hole. A draw handler must
 never raise: no region, no graph and a failed batch build are all
 early-returns, because an exception inside a draw callback breaks the whole
 viewport, not just this overlay.
+
+Adjusting a loop count does **not** rebuild the mesh per notch. It used to, so
+wheel events queued behind the rebuilds and the count overshot badly on a heavy
+layout; the pin now lands immediately and one coalesced rebuild follows the
+burst. Anything driven from a wheel or a drag must debounce the same way.
 
 Every `poll()` reads the active object through `ops.layout.active_object`.
 `context.active_object` does not exist in restricted contexts and raises rather

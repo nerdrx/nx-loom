@@ -491,6 +491,136 @@ class NXLOOM_OT_set_arc_type(bpy.types.Operator):
 
 
 _LAST_HOVER_XY = [None]
+ACTIVE_KEY = "nx_loom_active_arc"
+_PENDING = {"obj": None}
+
+
+def active_arc(obj):
+    aid = obj.get(ACTIVE_KEY) if obj is not None else None
+    return None if aid is None else int(aid)
+
+
+def set_active_arc(obj, aid):
+    if aid is None:
+        obj.pop(ACTIVE_KEY, None)
+    else:
+        obj[ACTIVE_KEY] = int(aid)
+    overlay.mark_dirty()
+
+
+def _sync_active_loops(context, graph, aid):
+    """Show the selected arc's count in the panel without re-applying it."""
+    st = context.scene.nx_loom
+    arc = graph.arcs.get(aid) if graph else None
+    if arc is None or arc.n is None:
+        return
+    if int(st.active_loops) != int(arc.n):
+        st["active_loops"] = int(arc.n)      # bypass the update callback
+
+
+def _deferred_rebuild():
+    """Coalesce a burst of adjustments into one rebuild.
+
+    A wheel notch used to rebuild the mesh immediately, so on a heavy layout
+    the events queued up behind the rebuilds and the count sailed past whatever
+    was wanted. Now the pin lands at once and the mesh catches up when the
+    wheel stops.
+    """
+    obj = _PENDING["obj"]
+    _PENDING["obj"] = None
+    if obj is None:
+        return None
+    try:
+        ctx = bpy.context
+        graph = get_graph(obj)
+        if graph is not None:
+            refresh(obj, graph, ctx)
+            _sync_active_loops(ctx, get_graph(obj), active_arc(obj))
+    except Exception:
+        pass
+    return None
+
+
+def queue_rebuild(obj, delay=0.25):
+    first = _PENDING["obj"] is None
+    _PENDING["obj"] = obj
+    if first:
+        bpy.app.timers.register(_deferred_rebuild, first_interval=delay)
+
+
+def apply_active_loops(context, want):
+    """Pin the selected arc to an exact count, typed rather than scrolled."""
+    obj = active_object(context)
+    if obj is None or GRAPH_KEY not in obj:
+        return
+    aid = active_arc(obj)
+    graph = get_graph(obj)
+    if graph is None or aid is None or aid not in graph.arcs:
+        return
+    if graph.arcs[aid].n_lock == want:
+        return
+    graph.arcs[aid].n_lock = max(1, int(want))
+    set_graph(obj, graph)
+    refresh(obj, graph, context)
+
+
+class NXLOOM_OT_select_arc(bpy.types.Operator):
+    """Select the arc under the cursor so its loop count can be typed"""
+
+    bl_idname = "nxloom.select_arc"
+    bl_label = "Select Arc"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        surface = _surface_of(graph, context) if graph is not None else None
+        if surface is None:
+            return {"CANCELLED"}
+        _, hit = _arc_under(context, graph, event, surface)
+        if hit is None:
+            set_active_arc(obj, None)
+            self.report({"INFO"}, "Nothing selected")
+            return {"CANCELLED"}
+        set_active_arc(obj, hit[0])
+        _sync_active_loops(context, graph, hit[0])
+        arc = graph.arcs[hit[0]]
+        self.report({"INFO"}, f"Arc {hit[0]}: {arc.n} loops"
+                              + (" (pinned)" if arc.n_lock else ""))
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_unpin_arc(bpy.types.Operator):
+    """Unpin just the selected arc"""
+
+    bl_idname = "nxloom.unpin_arc"
+    bl_label = "Unpin Arc"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        if obj is None or GRAPH_KEY not in obj:
+            return False
+        aid = active_arc(obj)
+        graph = get_graph(obj)
+        return bool(graph and aid is not None and aid in graph.arcs
+                    and graph.arcs[aid].n_lock)
+
+    def execute(self, context):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        aid = active_arc(obj)
+        graph.arcs[aid].n_lock = None
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        _sync_active_loops(context, get_graph(obj), aid)
+        self.report({"INFO"}, f"Arc {aid} unpinned")
+        return {"FINISHED"}
 
 
 class NXLOOM_OT_hover(bpy.types.Operator):
@@ -571,15 +701,12 @@ class NXLOOM_OT_adjust_loops(bpy.types.Operator):
         want = max(1, int(current) + int(self.delta))
         arc.n_lock = want
         set_graph(obj, graph)
-        refresh(obj, graph, context)
-
-        graph = get_graph(obj)
-        got = graph.arcs[hit[0]].n if hit[0] in graph.arcs else want
-        if got != want:
-            self.report({"WARNING"},
-                        f"Asked for {want} loops, solver could only reach {got}")
-        else:
-            self.report({"INFO"}, f"Arc {hit[0]} pinned to {want} loops")
+        set_active_arc(obj, hit[0])
+        context.scene.nx_loom["active_loops"] = want
+        # The mesh catches up once the wheel stops; rebuilding on every notch
+        # is what let the events queue and the count run away.
+        queue_rebuild(obj)
+        self.report({"INFO"}, f"Arc {hit[0]} pinned to {want} loops")
         return {"FINISHED"}
 
 
@@ -739,6 +866,8 @@ _CLASSES = (
     NXLOOM_OT_draw_arc,
     NXLOOM_OT_hover,
     NXLOOM_OT_adjust_loops,
+    NXLOOM_OT_select_arc,
+    NXLOOM_OT_unpin_arc,
     NXLOOM_OT_clear_loop_locks,
     NXLOOM_OT_adjust_patch_density,
     NXLOOM_OT_clear_patch_density,

@@ -19,7 +19,8 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         "Ctrl: erase arc / dissolve node     Shift: drag a node\n"
         "Ctrl+Shift: toggle a patch between filled and a hole\n"
         "Ctrl+Wheel: pin the loop count across the arc under the cursor\n"
-        "Ctrl+Alt+Wheel: more or less resolution inside one patch"
+        "Ctrl+Alt+Wheel: more or less resolution inside one patch\n"
+        "Alt+Shift: select an arc, then type its loop count in the sidebar"
     )
     bl_icon = "ops.mesh.knife_tool"
     bl_widget = None
@@ -32,6 +33,9 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
          {"type": "LEFTMOUSE", "value": "PRESS", "alt": True}, None),
         ("nxloom.toggle_hole",
          {"type": "LEFTMOUSE", "value": "PRESS", "ctrl": True, "shift": True}, None),
+        ("nxloom.select_arc",
+         {"type": "LEFTMOUSE", "value": "PRESS", "alt": True, "shift": True},
+         None),
         ("nxloom.adjust_loops",
          {"type": "WHEELUPMOUSE", "value": "PRESS", "ctrl": True},
          {"properties": [("delta", 1)]}),

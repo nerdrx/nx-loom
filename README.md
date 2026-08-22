@@ -81,8 +81,8 @@ stops there and tells you, instead of handing you three identical levels.
 
 ### Grab a loop count and watch it propagate
 
-"Six loops around this wrist" is an ordinary request. Ctrl+Wheel over an arc
-pins its count; the global solve keeps every patch closed around it, so the
+"Six loops around this wrist" is an ordinary request. Alt+Shift click the arc
+and type **6**, or Ctrl+Wheel over it; the global solve keeps every patch closed around it, so the
 change ripples outward through the model. Pinned arcs are drawn in their own
 colour with their counts printed in the viewport — the quantiser stops being
 something you trust and becomes something you can see.
@@ -148,7 +148,7 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 250 headless
+layouts — including a layout *drawn from nothing* on a sphere. 261 headless
 checks plus 10 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
@@ -175,6 +175,7 @@ dropped and named in the report — never fudged into the mesh.
    | Ctrl-Shift-click | toggle a patch between filled and a hole |
    | Ctrl-Wheel | pin how many loops cross the arc under the cursor |
    | Ctrl-Alt-Wheel | more or less resolution inside one patch |
+   | Alt-Shift-click | select an arc, then type its loop count in the sidebar |
    | Esc, RMB | end the chain; again to leave the tool |
 
    Whatever is under the cursor lights up before you click, so you can see

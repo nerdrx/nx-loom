@@ -5,6 +5,12 @@ from bpy.props import (BoolProperty, EnumProperty, FloatProperty, IntProperty,
                        PointerProperty)
 
 
+def _apply_active_loops(self, context):
+    """Typing a number applies it to the selected arc straight away."""
+    from .ops import draw as draw_ops
+    draw_ops.apply_active_loops(context, int(self.active_loops))
+
+
 class NXLoomSettings(bpy.types.PropertyGroup):
     reference: PointerProperty(
         name="Reference",
@@ -69,6 +75,13 @@ class NXLoomSettings(bpy.types.PropertyGroup):
         description="Snap radius in pixels. Defined on screen rather than in "
                     "world units so snapping feels the same at any zoom",
         default=18.0, min=2.0, max=80.0,
+    )
+    active_loops: IntProperty(
+        name="Loops",
+        description="Loop count across the selected arc. Typing here pins it "
+                    "to exactly this number",
+        default=2, min=1, max=4096,
+        update=_apply_active_loops,
     )
     pick_pixels: FloatProperty(
         name="Pick",

@@ -31,6 +31,7 @@ COL_PREVIEW = (1.0, 1.0, 1.0, 0.95)
 COL_SNAP = (1.0, 0.85, 0.2, 1.0)
 COL_HOVER = (1.0, 0.85, 0.2, 1.0)
 COL_PINNED = (0.20, 1.0, 0.85, 1.0)
+COL_ACTIVE = (1.0, 0.45, 0.85, 1.0)
 
 _handle = None
 _handle_px = None
@@ -133,7 +134,7 @@ def _bad_patch_loops(graph, bad_ids):
     return verts
 
 
-def _build(graph, bad_ids):
+def _build(graph, bad_ids, active=None):
     line_shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
     point_shader = gpu.shader.from_builtin("UNIFORM_COLOR")
 
@@ -147,6 +148,17 @@ def _build(graph, bad_ids):
                  palette.get(kind, COL_ARC["flow"]),
                  3.2 if kind == "pinned" else 2.4)
             )
+    arc = graph.arcs.get(int(active)) if active is not None else None
+    if arc is not None and len(arc.path) >= 2:
+        pairs = []
+        path = np.asarray(arc.path, dtype=float)
+        for i in range(len(path) - 1):
+            pairs.append(tuple(path[i]))
+            pairs.append(tuple(path[i + 1]))
+        batches["lines"].append(
+            (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
+             COL_ACTIVE, 4.5))
+
     bad = _bad_patch_loops(graph, bad_ids)
     if bad:
         batches["lines"].append(
@@ -176,10 +188,12 @@ def draw():
         return
 
     bad_ids = set(obj.get("nx_loom_bad_patches", []) or [])
-    key = (obj.name, obj.get(GRAPH_KEY, "")[:64], len(obj.get(GRAPH_KEY, "")), tuple(sorted(bad_ids)))
+    active = obj.get("nx_loom_active_arc")
+    key = (obj.name, obj.get(GRAPH_KEY, "")[:64], len(obj.get(GRAPH_KEY, "")),
+           tuple(sorted(bad_ids)), active)
     if _cache["key"] != key:
         try:
-            _cache["batches"] = _build(graph, bad_ids)
+            _cache["batches"] = _build(graph, bad_ids, active)
             _cache["key"] = key
         except Exception:
             return
@@ -275,6 +289,7 @@ def draw_text():
     from mathutils import Vector
 
     hover = _hover["arc"]
+    active = obj.get("nx_loom_active_arc")
     try:
         blf.size(0, 12)
     except Exception:
@@ -286,13 +301,15 @@ def draw_text():
             continue
         near_hover = (hover is not None and len(hover) == len(path)
                       and bool(np.allclose(hover, path)))
-        if not (pinned or near_hover):
+        is_active = (active is not None and int(active) == arc.id)
+        if not (pinned or near_hover or is_active):
             continue
         p2d = location_3d_to_region_2d(region, rv3d,
                                        Vector(tuple(path[len(path) // 2])))
         if p2d is None:
             continue
-        blf.color(0, *(COL_PINNED if pinned else COL_HOVER))
+        blf.color(0, *(COL_ACTIVE if is_active else
+                       (COL_PINNED if pinned else COL_HOVER)))
         blf.position(0, p2d.x + 6, p2d.y + 6, 0)
         blf.draw(0, f"{arc.n}" + ("*" if pinned else ""))
 
