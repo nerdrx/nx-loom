@@ -12,8 +12,8 @@ import numpy as np
 from mathutils import Vector
 
 from ..core.authoring import (add_arc, decimate, dissolve_node, move_node,
-                              nearest_node, nearest_on_arc, remove_arc,
-                              remove_node, resolve_anchor)
+                              nearest_node, nearest_on_arc, new_node,
+                              remove_arc, remove_node, resolve_anchor)
 from ..core.graph import GRAPH_KEY
 from ..core.picking import (interp_rays, pixel_radius_world, ray_surface,
                             screen_ray, trace_rays)
@@ -652,6 +652,120 @@ class NXLOOM_OT_unpin_arc(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def commit_ring(graph, surface, ray0, ray1, arc_type="flow", k=4):
+    """Turn a swipe across a limb into a closed ring of k arcs.
+
+    The stroke's two surface hits and the view direction span the cutting
+    plane; the plane's cross-section with the reference is chained into loops
+    and the loop nearest the stroke is the one the artist meant — a swipe on
+    the leg must never grab the torso loop behind it. Returns
+    (node_ids, arc_ids) or None with nothing changed.
+    """
+    from ..core.contour import cross_section, nearest_loop, ring_segments
+
+    # A natural swipe overshoots the silhouette on both ends — the pointer
+    # crosses the whole limb and keeps going. Sample along the stroke and keep
+    # the part that actually lands, instead of requiring both endpoints to hit.
+    pts = trace_rays(surface, interp_rays(ray0, ray1, 16))
+    if len(pts) < 2:
+        return None
+    p0, p1 = pts[0], pts[-1]
+    d = p1 - p0
+    if float(np.linalg.norm(d)) < 1e-9:
+        return None
+    view = np.asarray(ray0[1], dtype=float) + np.asarray(ray1[1], dtype=float)
+    normal = np.cross(d, view)
+    if float(np.linalg.norm(normal)) < 1e-9:
+        return None
+
+    mid = (p0 + p1) * 0.5
+    loops = cross_section(surface.verts, surface.tris, mid, normal)
+    loop = nearest_loop(loops, mid)
+    if loop is None:
+        return None
+    res = ring_segments(loop, k=k, start_at=p0)
+    if res is None:
+        return None
+    nodes_pts, paths = res
+
+    node_ids = [new_node(graph, pt, surface) for pt in nodes_pts]
+    arc_ids = []
+    for j in range(k):
+        aid = add_arc(graph, node_ids[j], node_ids[(j + 1) % k], paths[j],
+                      surface, type=arc_type, rail="surface")
+        arc_ids.append(aid)
+    return node_ids, arc_ids
+
+
+class NXLOOM_OT_ring_cut(bpy.types.Operator):
+    """Swipe across a limb to ring it with a closed loop.
+
+    One gesture replaces clicking around the back of the mesh with the view
+    rotated — the cutting plane finds the far side for you.
+    """
+
+    bl_idname = "nxloom.ring_cut"
+    bl_label = "Ring Cut"
+    bl_options = {"REGISTER", "UNDO", "BLOCKING"}
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        self.graph = get_graph(obj)
+        self.surface = _surface_of(self.graph, context) if self.graph else None
+        if self.surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
+            return {"CANCELLED"}
+        self.ray0 = _mouse_ray(context, event)
+        if ray_surface(self.surface, *self.ray0) is None:
+            self.report({"WARNING"}, "Start the swipe on the surface")
+            return {"CANCELLED"}
+        context.window.cursor_modal_set("CROSSHAIR")
+        context.window_manager.modal_handler_add(self)
+        context.workspace.status_text_set(
+            "Swipe across the limb and release — Esc cancels")
+        return {"RUNNING_MODAL"}
+
+    def _cleanup(self, context):
+        context.window.cursor_modal_restore()
+        context.workspace.status_text_set(None)
+        overlay.clear_preview()
+
+    def modal(self, context, event):
+        if event.type == "MOUSEMOVE":
+            ray = _mouse_ray(context, event)
+            p0 = ray_surface(self.surface, *self.ray0)
+            p1 = ray_surface(self.surface, *ray)
+            if p0 is not None and p1 is not None:
+                overlay.set_preview(path=np.vstack([p0, p1]))
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self._cleanup(context)
+            res = commit_ring(self.graph, self.surface, self.ray0,
+                              _mouse_ray(context, event),
+                              arc_type=context.scene.nx_loom.arc_type)
+            if res is None:
+                self.report({"WARNING"},
+                            "No closed loop under the swipe — cross the limb "
+                            "in one stroke")
+                return {"CANCELLED"}
+            obj = active_object(context)
+            refresh(obj, self.graph, context,
+                    rebuild=context.scene.nx_loom.rebuild_on_draw)
+            bpy.ops.ed.undo_push(message="NX Loom: ring cut")
+            self.report({"INFO"}, f"Ring of {len(res[1])} arcs")
+            return {"FINISHED"}
+
+        if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
+            self._cleanup(context)
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+
 class NXLOOM_OT_hover(bpy.types.Operator):
     """Highlight the node or arc under the cursor"""
 
@@ -894,6 +1008,7 @@ class NXLOOM_OT_toggle_hole(bpy.types.Operator):
 
 _CLASSES = (
     NXLOOM_OT_draw_arc,
+    NXLOOM_OT_ring_cut,
     NXLOOM_OT_hover,
     NXLOOM_OT_adjust_loops,
     NXLOOM_OT_select_arc,

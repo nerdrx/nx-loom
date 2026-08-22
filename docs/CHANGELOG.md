@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.12.0 — unreleased
+
+**Ring Cut: swipe across a limb to ring it.** Ctrl+Alt drag across a leg, an
+arm, a tail — the stroke and the view direction span a cutting plane, its
+cross-section with the reference is chained into loops, and the loop under
+your stroke becomes a closed ring of four even, welded arcs. One gesture
+replaces clicking around the back of the mesh with the view rotated.
+
+- On a body the plane cuts the torso behind the limb too; the loop **nearest
+  the stroke** wins, so a swipe on the leg never grabs the torso.
+- A natural swipe overshoots the silhouette on both ends; the stroke is
+  sampled and clamped to what actually lands.
+- The ring's first node is anchored under the stroke start, so **successive
+  rings around the same limb get corresponding nodes** (measured 0.015
+  lateral offset) — bridging them is four obvious click-click segments that
+  snap.
+- Rings are ordinary arcs: they mirror under symmetry, take arc types, pin,
+  and erase like anything drawn.
+
+290 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.11.0 — unreleased
 
 An audit pass over the recent work. Four families of defect, all found by
