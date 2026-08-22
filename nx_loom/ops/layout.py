@@ -31,6 +31,37 @@ def active_object(context):
     return getattr(view_layer.objects, "active", None)
 
 
+_PEEK = {}
+
+
+def peek_graph(obj):
+    """Read-only view of the layout, cached against the stored blob.
+
+    The overlay draws on every viewport redraw (twice — lines and text) and
+    hover runs on every mouse move, and each used to re-parse the full JSON
+    blob: 18.6 ms per parse on an avatar-scale layout, which is most of a
+    frame. The blob itself is the cache key, so any set_graph invalidates it
+    naturally.
+
+    Callers MUST NOT mutate the result. Anything that edits goes through
+    get_graph -> set_graph, which always parses fresh — that is what lets a
+    cancelled modal throw its half-made edits away.
+    """
+    text = obj.get(GRAPH_KEY) if obj is not None else None
+    if not text:
+        return None
+    key = (obj.as_pointer(), len(text), hash(text))
+    hit = _PEEK.get("g")
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    try:
+        graph = LayoutGraph.from_json(text)
+    except Exception:
+        return None
+    _PEEK["g"] = (key, graph)
+    return graph
+
+
 def get_graph(obj):
     text = obj.get(GRAPH_KEY) if obj else None
     return LayoutGraph.from_json(text) if text else None

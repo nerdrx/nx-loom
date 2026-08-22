@@ -13,13 +13,14 @@ from mathutils import Vector
 
 from ..core.authoring import (add_arc, decimate, dissolve_node, move_node,
                               nearest_node, nearest_on_arc, remove_arc,
-                              resolve_anchor)
+                              remove_node, resolve_anchor)
 from ..core.graph import GRAPH_KEY
 from ..core.picking import (interp_rays, pixel_radius_world, ray_surface,
                             screen_ray, trace_rays)
 from ..core.surface import Surface, cached_surface
 from ..ui import overlay
-from .layout import active_object, get_graph, rebuild_object, set_graph
+from .layout import (active_object, get_graph, peek_graph,
+                     rebuild_object, set_graph)
 
 DRAG_PIXELS = 6
 SEGMENT_SAMPLES = 24
@@ -236,6 +237,7 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         _, _, end = res
         self.anchor = end
         self.made += 1
+        self.touched = True
         bad = refresh(obj, self.graph, context,
                       rebuild=context.scene.nx_loom.rebuild_on_draw)
         self.graph = get_graph(obj)
@@ -257,10 +259,13 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         obj = active_object(context)
         if self.made:
             refresh(obj, self.graph, context, rebuild=True)
-            bpy.ops.ed.undo_push(message=f"NX Loom: draw {self.made} arc(s)")
+        if self.touched:
+            # Placed points count as edits even with no arc drawn yet — without
+            # this push they were saved but not undoable.
+            bpy.ops.ed.undo_push(message=f"NX Loom: draw ({self.made} arc(s))")
             self.report({"INFO"}, f"{self.made} arc(s), "
                                   f"{len(self.graph.patches)} patches")
-        return {"CANCELLED"} if cancelled and not self.made else {"FINISHED"}
+        return {"CANCELLED"} if cancelled and not self.touched else {"FINISHED"}
 
     # -- modal
 
@@ -328,6 +333,7 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
                         radius = _snap_radius(context, point)
                         self.anchor = resolve_anchor(self.graph, point, radius,
                                                      self.surface)[0]
+                        self.touched = True
                         refresh(active_object(context), self.graph, context,
                                 rebuild=False)
                     else:
@@ -386,17 +392,32 @@ class NXLOOM_OT_erase(bpy.types.Operator):
         graph = get_graph(obj)
         surface = _surface_of(graph, context)
         if surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
             return {"CANCELLED"}
         point, hit = _arc_under(context, graph, event, surface)
         if point is None:
             return {"CANCELLED"}
 
         node = nearest_node(graph, point, _pick_radius(context, point))
-        if node is not None and dissolve_node(graph, node[0], surface) is not None:
-            refresh(obj, graph, context)
-            self.report({"INFO"}, "Node dissolved")
-            return {"FINISHED"}
+        if node is not None:
+            nid = node[0]
+            valence = graph.valence().get(nid, 0)
+            if valence == 2 and dissolve_node(graph, nid, surface) is not None:
+                refresh(obj, graph, context)
+                self.report({"INFO"}, "Node dissolved")
+                return {"FINISHED"}
+            if valence != 2:
+                # A loose point or a junction: dissolving cannot apply, and
+                # leaving the click dead strands the user with a point they
+                # cannot get rid of. Deleting is what the gesture means here.
+                n_arcs = remove_node(graph, nid)
+                refresh(obj, graph, context)
+                self.report({"INFO"},
+                            "Point removed" if n_arcs == 0 else
+                            f"Node and {n_arcs} arc(s) removed")
+                return {"FINISHED"}
         if hit is None:
+            self.report({"WARNING"}, "Nothing under the cursor to erase")
             return {"CANCELLED"}
         remove_arc(graph, hit[0])
         refresh(obj, graph, context)
@@ -420,6 +441,7 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
         self.graph = get_graph(obj)
         self.surface = _surface_of(self.graph, context)
         if self.surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
             return {"CANCELLED"}
         origin, direction = _mouse_ray(context, event)
         point = ray_surface(self.surface, origin, direction)
@@ -480,9 +502,11 @@ class NXLOOM_OT_set_arc_type(bpy.types.Operator):
         graph = get_graph(obj)
         surface = _surface_of(graph, context)
         if surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
             return {"CANCELLED"}
         _, hit = _arc_under(context, graph, event, surface)
         if hit is None:
+            self.report({"WARNING"}, "No arc under the cursor")
             return {"CANCELLED"}
         graph.arcs[hit[0]].type = context.scene.nx_loom.arc_type
         set_graph(obj, graph)
@@ -584,6 +608,7 @@ class NXLOOM_OT_select_arc(bpy.types.Operator):
         graph = get_graph(obj)
         surface = _surface_of(graph, context) if graph is not None else None
         if surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
             return {"CANCELLED"}
         _, hit = _arc_under(context, graph, event, surface)
         if hit is None:
@@ -646,7 +671,7 @@ class NXLOOM_OT_hover(bpy.types.Operator):
         _LAST_HOVER_XY[0] = xy
 
         obj = active_object(context)
-        graph = get_graph(obj)
+        graph = peek_graph(obj)          # read-only: hover never edits
         surface = _surface_of(graph, context) if graph is not None else None
         if surface is None:
             overlay.clear_hover()
@@ -694,6 +719,7 @@ class NXLOOM_OT_adjust_loops(bpy.types.Operator):
         graph = get_graph(obj)
         surface = _surface_of(graph, context) if graph is not None else None
         if surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
             return {"CANCELLED"}
         _, hit = _arc_under(context, graph, event, surface)
         if hit is None:

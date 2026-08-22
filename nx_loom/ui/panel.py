@@ -12,6 +12,8 @@ keymap and the panel only says so.
 
 import bpy
 
+_FLOOR_CACHE = {}
+
 from ..core.delta import DELTA_KEY, count as delta_count, load as load_deltas
 from ..core.graph import GRAPH_KEY
 from ..ops.layout import active_object, get_graph
@@ -128,8 +130,21 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
                              icon="MESH_GRID")
             graph = get_graph(obj)
             if graph is not None and graph.patches:
+                # floor_faces runs the whole quantiser; a panel redraws on
+                # every mouse move over it, so the result is cached against
+                # the stored blob rather than recomputed per draw.
+                from ..core.graph import GRAPH_KEY as _GK
+
                 from ..core.build import floor_faces
-                fl = floor_faces(graph, st.fill_background)
+                blob = obj.get(_GK, "")
+                key = (obj.as_pointer(), len(blob), hash(blob),
+                       st.fill_background)
+                hit = _FLOOR_CACHE.get("f")
+                if hit is not None and hit[0] == key:
+                    fl = hit[1]
+                else:
+                    fl = floor_faces(graph, st.fill_background)
+                    _FLOOR_CACHE["f"] = (key, fl)
                 if st.target_count < fl:
                     col = layout.column(align=True)
                     col.alert = True

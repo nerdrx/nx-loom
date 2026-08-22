@@ -56,6 +56,25 @@ def prune_orphan_nodes(graph, candidates=None):
             del graph.nodes[nid]
 
 
+def remove_node(graph, nid):
+    """Delete a node outright, along with every arc that touches it.
+
+    Dissolve is for healing a subdivision out of a chain; this is for getting
+    rid of something — a stray point placed and abandoned, a dangling stub.
+    Without it a loose point cannot be removed at all: it has no arc to erase
+    and dissolving needs a valence of exactly 2.
+    """
+    if nid not in graph.nodes:
+        return 0
+    doomed = [aid for aid, arc in graph.arcs.items()
+              if arc.a == nid or arc.b == nid]
+    for aid in doomed:
+        del graph.arcs[aid]
+    del graph.nodes[nid]
+    prune_orphan_nodes(graph)
+    return len(doomed)
+
+
 def split_arc(graph, aid, index, t, surface=None):
     """Split an arc at parameter t inside path segment `index`. Returns node id.
 

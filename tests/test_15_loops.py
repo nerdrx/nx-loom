@@ -126,6 +126,7 @@ def run():
     out += run_patch_density()
     out += run_typed_loops()
     out += run_symmetric_pins()
+    out += run_symmetric_attrs()
     return out
 
 
@@ -320,4 +321,96 @@ def run_symmetric_pins():
     out.append(("two halves pinned differently is reported, not ignored",
                 len(rep.get("lock_conflicts", [])) > 0,
                 str(rep.get("lock_conflicts"))))
+    return out
+
+
+def run_symmetric_attrs():
+    """Patch attributes under symmetry: one key for both halves."""
+    out = []
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=3, y_subdivisions=3, size=2.0)
+    st = bpy.context.scene.nx_loom
+    st.target_edge = 0.3
+    st.relax_iters = 0
+    st.reproject = False
+    st.size_mode = "EDGE"
+    st.symmetry_axis = "X"
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.nxloom.layout_from_selection()
+    if bpy.context.active_object.mode == "EDIT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    obj = bpy.context.active_object
+    graph = get_graph(obj)
+
+    def mirrored_patch(g):
+        for pid, p in g.patches.items():
+            arcs = {a for s in p.arc_sides() for a in s}
+            if arcs and all(g.arcs[a].mirror_of is not None
+                            or g.arcs[a].twin is not None for a in arcs):
+                return pid
+        return None
+
+    def faces_in(o, pid):
+        attr = o.data.attributes.get("nx_loom_patch")
+        return sum(1 for d in attr.data if int(d.value) == pid) if attr else 0
+
+    # density set on the MIRRORED side must not be silently dropped
+    pid = mirrored_patch(graph)
+    out.append(("the symmetric layout has a mirrored-side patch",
+                pid is not None, str(pid)))
+    if pid is not None:
+        before = faces_in(obj, pid)
+        graph.set_density(pid, 2.5)
+        set_graph(obj, graph)
+        rebuild_object(obj, bpy.context)
+        g2 = get_graph(obj)
+        after = faces_in(obj, mirrored_patch(g2))
+        out.append(("density on the mirrored side takes effect",
+                    after > before, f"{before} -> {after} faces"))
+        # and its authored partner matches, or the mesh is asymmetric
+        canon = g2.canonical_key(mirrored_patch(g2))
+        partner = next((q for q in g2.patches
+                        if q != mirrored_patch(g2)
+                        and g2.canonical_key(q) == canon), None)
+        if partner is not None:
+            out.append(("the authored partner densifies identically",
+                        faces_in(obj, partner) == after,
+                        f"{faces_in(obj, partner)} vs {after}"))
+        bpy.ops.nxloom.clear_patch_density()
+
+    # a hole on one side holes both, and the mesh stays exactly symmetric
+    graph = get_graph(obj)
+    pid = sorted(graph.patches)[0]
+    graph.set_hole(pid, True)
+    set_graph(obj, graph)
+    rebuild_object(obj, bpy.context)
+    g3 = get_graph(obj)
+    holed = sum(1 for p in g3.patches.values() if p.fill == "hole")
+    out.append(("a hole on one side holes its mirror too", holed == 2,
+                f"{holed} holed"))
+    P = np.array([tuple(obj.matrix_world @ v.co) for v in obj.data.vertices])
+    if len(P):
+        M = P.copy()
+        M[:, 0] *= -1
+        d = np.linalg.norm(P[:, None, :] - M[None, :, :], axis=2).min(axis=1)
+        out.append(("the holed mesh is still exactly symmetric",
+                    float(d.max()) < 1e-9, f"max {d.max():.1e}"))
+
+    # un-holing one side un-holes both
+    g3.set_hole(pid, False)
+    set_graph(obj, g3)
+    rebuild_object(obj, bpy.context)
+    g4 = get_graph(obj)
+    out.append(("un-holing clears both halves",
+                sum(1 for p in g4.patches.values() if p.fill == "hole") == 0, ""))
+
+    # with symmetry OFF the canonical key is the raw key — no behaviour change
+    st.symmetry_axis = "NONE"
+    rebuild_object(obj, bpy.context)
+    g5 = get_graph(obj)
+    pid5 = sorted(g5.patches)[0]
+    out.append(("without symmetry, canonical equals raw",
+                g5.canonical_key(pid5) == g5.patches[pid5].arc_key(), ""))
     return out

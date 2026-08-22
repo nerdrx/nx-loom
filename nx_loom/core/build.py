@@ -69,9 +69,16 @@ def _solve_counts(graph, target_edge, fill_background=False):
     # A patch asking for more resolution is expressed as a longer arc: the
     # quantiser already balances inconsistent targets by least squares, so this
     # needs no special case in the solver at all.
+    # Density is folded across every arc onto its representative, exactly as
+    # locks are — reading it off the representatives alone drops any override
+    # whose patch sits on the mirrored side.
     dens = graph.arc_density()
     if dens:
-        lengths = {r: lengths[r] * dens.get(r, 1.0) for r in rep_ids}
+        by_rep = {}
+        for aid, mult in dens.items():
+            by_rep.setdefault(rep_of.get(aid, aid), []).append(mult)
+        lengths = {r: lengths[r] * (sum(by_rep[r]) / len(by_rep[r]))
+                   if r in by_rep else lengths[r] for r in rep_ids}
 
     counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
                                 list(graph.patches), rep_sides, locks)

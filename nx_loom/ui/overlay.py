@@ -89,11 +89,8 @@ def _tag_redraw():
 def _graph_of(obj):
     if obj is None or GRAPH_KEY not in obj:
         return None
-    from ..ops.layout import get_graph
-    try:
-        return get_graph(obj)
-    except Exception:
-        return None
+    from ..ops.layout import peek_graph
+    return peek_graph(obj)
 
 
 def _segments(graph):

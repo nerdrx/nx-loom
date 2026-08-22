@@ -196,28 +196,69 @@ class LayoutGraph:
         """Re-apply stored hole marks to freshly discovered patches."""
         stored = {tuple(k) for k in self.settings.get("holes", [])}
         n = 0
-        for patch in self.patches.values():
-            if patch.arc_key() in stored:
+        for pid, patch in self.patches.items():
+            if (self.canonical_key(pid) in stored
+                    or patch.arc_key() in stored):
                 patch.fill = "hole"
                 n += 1
         return n
 
+    def _canonical_arc(self, aid):
+        """The arc that stands for this one under symmetry: its mirror source
+        or its authored twin, itself otherwise."""
+        arc = self.arcs.get(aid)
+        if arc is None:
+            return aid
+        if arc.mirror_of is not None and arc.mirror_of in self.arcs:
+            return arc.mirror_of
+        if arc.twin is not None and arc.twin in self.arcs:
+            return arc.twin
+        return aid
+
+    def canonical_key(self, pid):
+        """Patch identity that is stable under symmetry.
+
+        Keying attributes on raw arc ids has three failure modes at once: a
+        mirrored patch's arcs are regenerated with fresh ids on every sync, so
+        its key rots; an attribute set on the mirrored side references arcs the
+        solve never reads, so it silently does nothing; and an attribute set on
+        one side leaves the other side bare, so a "symmetric" mesh comes out
+        asymmetric. Mapping every arc to its canonical partner first makes a
+        patch and its mirror share one key, which fixes all three.
+
+        With symmetry off every arc is its own canonical arc, so this is
+        exactly `arc_key` and nothing changes.
+        """
+        return tuple(sorted({self._canonical_arc(a)
+                             for side in self.patches[pid].sides
+                             for a, _rev in side}))
+
+    def _attr_lookup(self, stored, pid):
+        """Read a patch attribute by canonical key, falling back to the raw
+        key so files saved before canonical keys existed keep working."""
+        hit = stored.get(str(list(self.canonical_key(pid))))
+        if hit is None:
+            hit = stored.get(str(list(self.patches[pid].arc_key())))
+        return hit
+
     def patch_density(self, pid):
         stored = self.settings.get("density", {})
-        return float(stored.get(str(list(self.patches[pid].arc_key())), 1.0))
+        hit = self._attr_lookup(stored, pid)
+        return float(hit) if hit is not None else 1.0
 
     def set_density(self, pid, value):
         """Ask for more or less resolution inside one patch.
 
-        Keyed on the patch's arcs, not its id, for the same reason holes are:
-        patches are re-derived on every edit.
+        Keyed on the patch's canonical arcs, so it survives re-discovery and
+        applies to both halves of a mirrored pair.
         """
         stored = dict(self.settings.get("density", {}))
-        key = str(list(self.patches[pid].arc_key()))
-        if abs(value - 1.0) < 1e-6:
+        keys = {str(list(self.canonical_key(pid))),
+                str(list(self.patches[pid].arc_key()))}
+        for key in keys:
             stored.pop(key, None)
-        else:
-            stored[key] = float(value)
+        if abs(value - 1.0) >= 1e-6:
+            stored[str(list(self.canonical_key(pid)))] = float(value)
         self.settings["density"] = stored
 
     def arc_density(self):
@@ -226,8 +267,9 @@ class LayoutGraph:
         if not stored:
             return {}
         acc = {}
-        for patch in self.patches.values():
-            d = float(stored.get(str(list(patch.arc_key())), 1.0))
+        for pid, patch in self.patches.items():
+            hit = self._attr_lookup(stored, pid)
+            d = float(hit) if hit is not None else 1.0
             for side in patch.sides:
                 for aid, _rev in side:
                     acc.setdefault(aid, []).append(d)
@@ -235,14 +277,20 @@ class LayoutGraph:
 
     def set_hole(self, pid, is_hole):
         holes = {tuple(k) for k in self.settings.get("holes", [])}
-        key = self.patches[pid].arc_key()
+        canon = self.canonical_key(pid)
+        raw = self.patches[pid].arc_key()
         if is_hole:
-            holes.add(key)
+            holes.add(canon)
             self.patches[pid].fill = "hole"
         else:
-            holes.discard(key)
+            holes.discard(canon)
+            holes.discard(raw)
             self.patches[pid].fill = "coons"
         self.settings["holes"] = [list(k) for k in sorted(holes)]
+        # a mirrored pair shares its canonical key, so the partner follows
+        for other, patch in self.patches.items():
+            if other != pid and self.canonical_key(other) == canon:
+                patch.fill = "hole" if is_hole else "coons"
 
     # -- patch discovery -------------------------------------------------
 

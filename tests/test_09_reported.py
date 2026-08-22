@@ -181,6 +181,7 @@ def run():
 
     out += run_point_and_drag()
     out += run_move_and_pick()
+    out += run_loose_points()
     return out
 
 
@@ -385,4 +386,74 @@ def run_move_and_pick():
     after = time.perf_counter() - t0
     out.append(("but editing the reference invalidates it",
                 after > cold * 0.3, f"{after*1000:.0f} ms after an edit"))
+    return out
+
+
+def run_loose_points():
+    """A stray point must be removable, and placing one must be undoable."""
+    from nx_loom.core.authoring import remove_node
+    from nx_loom.ops.layout import peek_graph, set_graph
+
+    out = []
+
+    # deleting a loose point: no arc to erase, valence != 2, dissolve refuses —
+    # remove_node is the only gesture that can apply
+    g = LayoutGraph()
+    lone = A.new_node(g, [0, 0, 0])
+    n = remove_node(g, lone)
+    out.append(("a loose point can be deleted", lone not in g.nodes and n == 0,
+                f"removed with {n} arcs"))
+
+    # deleting a junction takes its arcs with it and prunes what is stranded
+    g = LayoutGraph()
+    hub = A.new_node(g, [0, 0, 0])
+    tips = [A.new_node(g, co) for co in ([1, 0, 0], [0, 1, 0], [-1, 0, 0])]
+    for t in tips:
+        A.add_arc(g, hub, t, np.array([g.nodes[hub].co, g.nodes[t].co]))
+    n = remove_node(g, hub)
+    out.append(("deleting a junction removes its arcs and strands nothing",
+                n == 3 and len(g.arcs) == 0 and len(g.nodes) == 0,
+                f"{n} arcs, {len(g.nodes)} nodes left"))
+
+    # a valence-1 stub end
+    g = LayoutGraph()
+    a = A.new_node(g, [0, 0, 0])
+    b = A.new_node(g, [1, 0, 0])
+    A.add_arc(g, a, b, np.array([[0, 0, 0], [1, 0, 0]]))
+    remove_node(g, b)
+    out.append(("deleting a dangling end removes the stub arc too",
+                len(g.arcs) == 0 and len(g.nodes) == 0, ""))
+
+    # the erase operator must route loose points to deletion, not dead-end
+    import inspect
+
+    from nx_loom.ops import draw as draw_ops
+    src = inspect.getsource(draw_ops.NXLOOM_OT_erase)
+    out.append(("erase handles non-dissolvable nodes",
+                "remove_node" in src and "valence" in src, ""))
+
+    # peek cache: same parse back until the blob changes
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=2, y_subdivisions=2, size=2.0)
+    bpy.context.scene.nx_loom.target_edge = 0.5
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.nxloom.layout_from_selection()
+    if bpy.context.active_object.mode == "EDIT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    obj = bpy.context.active_object
+    g1 = peek_graph(obj)
+    g2 = peek_graph(obj)
+    out.append(("repeat peeks reuse one parse", g1 is g2 and g1 is not None, ""))
+    edit = peek_graph(obj)
+    # writers must not go through peek: get_graph parses fresh
+    from nx_loom.ops.layout import get_graph
+    out.append(("writers still parse fresh", get_graph(obj) is not g1, ""))
+    mutated = get_graph(obj)
+    A.new_node(mutated, [5, 5, 5])
+    set_graph(obj, mutated)
+    g3 = peek_graph(obj)
+    out.append(("saving invalidates the peek", g3 is not g1
+                and len(g3.nodes) == len(g1.nodes) + 1,
+                f"{len(g1.nodes)} -> {len(g3.nodes)}"))
     return out

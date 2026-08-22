@@ -84,10 +84,16 @@ is free in space — that is the from-scratch modeling path.
 **Sides are chains.** A patch side may span several arcs. Everything in the
 solver works on *side sums*, never on single arcs.
 
-**Patch ids are not identity.** Patches are re-derived on every edit, so
-anything stored against a patch — a hole mark, a freeze — is keyed on its
-sorted set of arc ids (`Patch.arc_key`), held in `settings["holes"]` and
-re-applied after discovery.
+**Patch ids are not identity, and raw arc ids are not either.** Patches are
+re-derived on every edit, and under symmetry the mirrored half's arcs are
+regenerated with fresh ids on every sync. Anything stored against a patch — a
+hole, a density override — is keyed on its **canonical** arc set
+(`LayoutGraph.canonical_key`: every arc mapped to its mirror source or twin
+first), held in settings and re-applied after discovery. A patch and its
+mirror share one canonical key, so an attribute set on either side applies to
+both — which is also what keeps the output symmetric. With symmetry off the
+canonical key equals the raw key. Raw keys are still accepted on read for old
+files.
 
 **A cornerless loop is still a region. [frozen]** A ring drawn round a limb has
 no junctions and no sharp turns, so it has no natural corners at all. Refusing
@@ -474,6 +480,18 @@ while you are drawing, not discovered later as a hole. A draw handler must
 never raise: no region, no graph and a failed batch build are all
 early-returns, because an exception inside a draw callback breaks the whole
 viewport, not just this overlay.
+
+The overlay's draw handlers and the hover operator read the layout through
+`ops.layout.peek_graph`, a read-only parse cached against the stored blob —
+they run per redraw and per mouse move, and parsing the JSON each time cost
+18.6 ms on a large layout. Peeked graphs must never be mutated; writers go
+through `get_graph` → `set_graph`, which parses fresh so a cancelled modal can
+discard its edits. Panel code must not run the solver per draw either
+(`floor_faces` is cached the same way).
+
+A gesture that does nothing must say why. An operator reachable from a click
+never returns CANCELLED silently — no reference set, nothing under the cursor,
+whatever it is, it goes to `self.report`.
 
 Adjusting a loop count does **not** rebuild the mesh per notch. It used to, so
 wheel events queued behind the rebuilds and the count overshot badly on a heavy

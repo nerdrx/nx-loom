@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.11.0 — unreleased
+
+An audit pass over the recent work. Four families of defect, all found by
+looking for the shapes of bugs already fixed once.
+
+**Patch attributes are now keyed on canonical arcs.** Holes and per-patch
+density were keyed on raw arc ids, which fails three ways at once under
+symmetry: density set on a mirrored-side patch was silently dropped (its arcs
+are never read by the solve — measured, zero effect); an attribute on one side
+left the other bare, so a "symmetric" mesh came out asymmetric (0.667 mirror
+error from one hole); and mirrored arc ids are regenerated every sync, so keys
+could rot. Mapping arcs to their mirror source or twin first gives a patch and
+its mirror one shared key: a hole on either side holes both (mirror error
+0.000), density on either side densifies both, and with symmetry off nothing
+changes.
+
+**A loose point can be deleted.** Erase only knew how to dissolve valence-2
+nodes or remove arcs, so an isolated point matched neither branch and the
+click just died. Ctrl-click now deletes lone points, dangling stubs and whole
+junctions with their arcs. Placing points without drawing arcs is also
+undoable now — they were saved but never got an undo step.
+
+**The overlay stops re-parsing the document every frame.** Both draw handlers
+and the hover operator parsed the full layout JSON per viewport redraw and per
+mouse move — 18.6 ms on an avatar-scale layout, most of a frame budget.
+Read-only consumers now share one cached parse keyed on the stored blob:
+0.25 ms. Writers still parse fresh, which is what lets a cancelled modal throw
+its edits away. The face-count panel also ran the entire quantiser per redraw
+to show the layout floor; cached the same way.
+
+**Every dead gesture says why.** Thirteen operator paths returned CANCELLED in
+silence — clicking with no reference set, aiming at an arc and missing. Each
+now reports what went wrong.
+
+280 headless checks + 12 GUI checks; the 122-layout sweep re-run clean.
+
+
 ## 0.10.2 — unreleased
 
 **Fixed: pins on half the arcs did nothing.** Locks were read only from the
