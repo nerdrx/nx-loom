@@ -41,6 +41,19 @@ and NX Loom generates the mesh. Quad patches get a discrete Coons grid;
 3-, 5- and 6-sided patches (where the poles live) get split templates. Interiors
 relax and reproject onto the reference.
 
+### Symmetry, on the layout rather than the mesh
+
+Set an axis and draw one half. The mirror is part of the *document*, so both
+halves share the nodes sitting on the plane and the seam is welded by
+construction — no mirror-weld pass, no doubles to merge.
+
+Counts are solved over one half and copied, and generated positions are forced
+into exact mirror pairs, so the result is **bit-exact (0.0 mirror error) at
+every density** rather than approximately symmetric. That distinction matters:
+reprojecting onto a sculpt whose own triangulation is asymmetric pulls the two
+halves apart by about a triangle's width, which you will not notice on a sphere
+and will notice immediately on a face.
+
 ### Hand edits survive the rebuild
 
 The escape hatch is the part that decides whether any of this survives real
@@ -74,14 +87,14 @@ solve.
 
 ## Status
 
-**v0.5.0 — draw it, edit it, apply it with your UVs and weights intact.**
+**v0.6.0 — symmetric, drawn, edited, applied with your data intact.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
 rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 128 headless
+layouts — including a layout *drawn from nothing* on a sphere. 140 headless
 checks plus 8 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.

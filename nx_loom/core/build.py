@@ -12,6 +12,7 @@ import numpy as np
 from .fill import fill_patch
 from .quantize import quantize
 from .surface import resample
+from .symmetry import representative
 
 
 BACKGROUND_MIN_RATIO = 6.0
@@ -50,15 +51,25 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
     a vertex index that means something different next time.
     """
     target_edge = target_edge or graph.settings.get("target_edge", 0.1)
-    arc_ids = list(graph.arcs)
-    lengths = {a: graph.arcs[a].length() for a in arc_ids}
-    locks = {a: graph.arcs[a].n_lock for a in arc_ids if graph.arcs[a].n_lock}
 
-    counts, qrep = quantize(
-        arc_ids, lengths, target_edge,
-        list(graph.patches), lambda p: graph.patches[p].arc_sides(), locks,
+    # Solve over representatives: a mirrored arc copies its source's count.
+    # The mirrored layout has a mirrored constraint system, so solving the
+    # reduced system solves both halves at once — and the two sides come out
+    # bit-identical rather than merely similar.
+    rep_of = representative(graph)
+    rep_ids = sorted(set(rep_of.values()))
+    lengths = {r: graph.arcs[r].length() for r in rep_ids}
+    locks = {r: graph.arcs[r].n_lock for r in rep_ids if graph.arcs[r].n_lock}
+
+    def rep_sides(pid):
+        return [[rep_of[a] for a in side]
+                for side in graph.patches[pid].arc_sides()]
+
+    counts_rep, qrep = quantize(
+        rep_ids, lengths, target_edge, list(graph.patches), rep_sides, locks,
     )
-    for a in arc_ids:
+    counts = {aid: counts_rep[rep_of[aid]] for aid in graph.arcs}
+    for a in graph.arcs:
         graph.arcs[a].n = counts[a]
 
     verts = []
@@ -78,7 +89,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
 
     # arc vertices: endpoints are the shared node vertices, interior is new
     arc_verts = {}
-    for aid in arc_ids:
+    for aid in graph.arcs:
         arc = graph.arcs[aid]
         pts = resample(arc.path, counts[aid], project=project)
         ids = [node_vert[arc.a]]

@@ -80,10 +80,12 @@ def commit_arc(graph, surface, rays, snap_radius, min_step,
 
 def refresh(obj, graph, context, rebuild=True):
     """Re-derive patches, optionally regenerate, and record what failed."""
+    from ..core import symmetry as sym
+    st = context.scene.nx_loom
     surface = _surface_of(graph, context)
     normal_at = surface.normal_at if surface else None
-    graph.discover_patches(normal_at=normal_at,
-                           corner_angle=context.scene.nx_loom.corner_angle)
+    sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
+    graph.discover_patches(normal_at=normal_at, corner_angle=st.corner_angle)
     set_graph(obj, graph)
     bad = []
     if rebuild and graph.patches:

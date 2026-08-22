@@ -69,6 +69,25 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "the surface occlude it",
         default=True,
     )
+    symmetry_axis: EnumProperty(
+        name="Symmetry",
+        description="Mirror the layout across this axis. Both halves share the "
+                    "nodes sitting on the plane, so the seam is welded by "
+                    "construction rather than merged afterwards",
+        items=[
+            ("NONE", "None", "No symmetry"),
+            ("X", "X", "Mirror across the YZ plane"),
+            ("Y", "Y", "Mirror across the XZ plane"),
+            ("Z", "Z", "Mirror across the XY plane"),
+        ],
+        default="NONE",
+    )
+    symmetry_tolerance: FloatProperty(
+        name="Seam Tolerance",
+        description="Nodes within this distance of the mirror plane are "
+                    "snapped onto it and shared by both halves",
+        default=0.002, min=0.0, max=1.0, precision=4, unit="LENGTH",
+    )
     fill_background: BoolProperty(
         name="Fill Background Region",
         description="Fill the leftover region too. A loop drawn around a limb "

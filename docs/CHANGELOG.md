@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0 — unreleased
+
+Symmetry, done at the layout rather than at the mesh. Draw one half, get both;
+the seam is welded by construction because the two halves share the nodes on
+the plane.
+
+- `Symmetry` axis (X / Y / Z) with a seam tolerance. Near-plane nodes snap onto
+  the plane and are shared; arcs crossing it are split there.
+- Counts are quantised over **representative** arcs, so both halves get
+  identical subdivisions. Symmetrising after an independent solve does not
+  work — the halves drift.
+- Generated positions are forced into exact mirror pairs. The layout mirrors
+  exactly but reprojection does not: the reference's own triangulation is
+  asymmetric and pulled the halves ~2e-2 apart. Now **bit-exact (0.0) at every
+  density**.
+- Deleting an authored arc removes its mirror for free; turning symmetry off
+  leaves exactly what was authored.
+
+Two bugs found while building it:
+
+- Adopting a hand-drawn counterpart by marking it `mirror_of` made the artist's
+  own geometry **derived**, so the next sync deleted and regenerated it —
+  churning arc ids and breaking every hole key and delta keyed to them.
+  Authored pairs use a separate `twin` field that is never deleted.
+- One-to-one pairing matters: a per-vertex nearest search let two vertices
+  claim the same partner, leaving a third unpaired and quietly asymmetric.
+
+Schema is now v2 (`mirror_of`, `twin`); v1 layouts load unchanged.
+
+140 headless checks + 8 GUI checks.
+
+
 ## 0.5.0 — unreleased
 
 Three bugs reported from actually drawing on a model, and the behaviour that

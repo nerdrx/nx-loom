@@ -208,6 +208,49 @@ Rebuild is explicit (`nxloom.rebuild`) or automatic on graph change when
 `scene.nx_loom.auto_rebuild` is set. Auto-rebuild is throttled and always
 runs on the *whole* graph — no partial-update cache in v0.1.
 
+## 4b. Symmetry **[frozen]**
+
+Mirroring happens on the **layout**, not the mesh. Both halves share the nodes
+that sit on the plane, so the seam is welded by construction — there is no
+mirror-weld pass, no doubles to merge, and no tolerance to tune afterwards.
+
+Two distinct relationships, and conflating them corrupts the document:
+
+- `Arc.mirror_of` — this arc was **generated**. Every sync throws all of them
+  away and regenerates them, which is why deleting an authored arc removes its
+  counterpart for free.
+- `Arc.twin` — this arc was **authored**, and happens to be the mirror partner
+  of another authored arc. It is never deleted. The pairing exists only so both
+  sides receive the same subdivision count.
+
+Marking a hand-drawn arc as `mirror_of` would let the next sync delete and
+regenerate the artist's own geometry, churning arc ids and breaking every hole
+key and delta that references them.
+
+`sync()` drops derived elements, snaps near-plane nodes exactly onto the plane,
+splits arcs that cross it, adopts hand-drawn counterparts as twins (positive
+side is always the source, so the choice is deterministic), and mirrors
+whatever is left.
+
+**Counts are solved over representatives.** `build` maps every arc to its
+source or twin and quantises the reduced system. A mirrored layout has a
+mirrored constraint system, so solving one half solves both — and the counts
+come out identical rather than merely similar. Symmetrising counts *after* an
+independent solve does not work: the two halves drift apart.
+
+**Positions are then forced into exact pairs.** The layout mirrors exactly but
+the generated positions do not: the reference mesh's own triangulation is
+asymmetric, so reprojecting onto it pulls the halves apart by up to a
+triangle's width (measured ~2e-2 on a sphere — invisible in isolation, very
+visible on a face). `symmetrize_verts` copies the positive side onto the
+negative one, one-to-one, closest pairs first. A plain per-vertex nearest
+search is not enough: two vertices claim the same partner and a third is left
+unpaired and quietly asymmetric. Result is bit-exact (0.0 mirror error) at
+every density.
+
+Hand edits in the delta layer are **not** mirrored — they are applied after
+symmetrisation, per vertex, exactly where they were made.
+
 ## 5. Delta layer **[implemented]**
 
 Manual edits to the generated mesh are stored in `nx_loom_delta` against each

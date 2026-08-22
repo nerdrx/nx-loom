@@ -57,6 +57,17 @@ class NXLOOM_PT_main(bpy.types.Panel):
         box.operator("nxloom.toggle_hole", icon="MESH_CIRCLE")
         box.prop(st, "fill_background")
 
+        graph = get_graph(obj)
+
+        box = layout.box()
+        box.label(text="Symmetry", icon="MOD_MIRROR")
+        box.prop(st, "symmetry_axis", expand=True)
+        if st.symmetry_axis != "NONE":
+            box.prop(st, "symmetry_tolerance")
+            n_mir = sum(1 for a in graph.arcs.values()
+                        if a.mirror_of is not None) if graph else 0
+            box.label(text=f"{n_mir} mirrored arc(s)", icon="CHECKMARK")
+
         box = layout.box()
         box.label(text="Density", icon="MOD_MESHDEFORM")
         box.prop(st, "target_edge")
@@ -83,7 +94,6 @@ class NXLOOM_PT_main(bpy.types.Panel):
         box.prop(st, "transfer_data")
         box.operator("nxloom.apply", icon="CHECKMARK")
 
-        graph = get_graph(obj)
         if graph is not None:
             box = layout.box()
             box.label(text="Layout", icon="OUTLINER_DATA_SURFACE")

@@ -12,34 +12,40 @@ import json
 
 import numpy as np
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 GRAPH_KEY = "nx_loom_graph"
 
 
 class Node:
-    __slots__ = ("id", "pin", "co", "kind")
+    __slots__ = ("id", "pin", "co", "kind", "mirror_of")
 
-    def __init__(self, id, co, pin=None, kind="corner"):
+    def __init__(self, id, co, pin=None, kind="corner", mirror_of=None):
         self.id = int(id)
         self.co = np.asarray(co, dtype=float)
         self.pin = pin
         self.kind = kind
+        # id of the authored node this one was mirrored from, or None if this
+        # node was authored. Derived elements are regenerated wholesale on
+        # every sync, so nothing has to track them incrementally.
+        self.mirror_of = mirror_of
 
     def to_dict(self):
         return {"id": self.id, "co": [float(x) for x in self.co],
-                "pin": list(self.pin) if self.pin else None, "kind": self.kind}
+                "pin": list(self.pin) if self.pin else None, "kind": self.kind,
+                "mirror_of": self.mirror_of}
 
     @staticmethod
     def from_dict(d):
         return Node(d["id"], d["co"], tuple(d["pin"]) if d.get("pin") else None,
-                    d.get("kind", "corner"))
+                    d.get("kind", "corner"), d.get("mirror_of"))
 
 
 class Arc:
-    __slots__ = ("id", "a", "b", "path", "pins", "type", "rail", "n", "n_lock")
+    __slots__ = ("id", "a", "b", "path", "pins", "type", "rail", "n", "n_lock",
+                 "mirror_of", "twin")
 
     def __init__(self, id, a, b, path, type="flow", rail="surface",
-                 pins=None, n=None, n_lock=None):
+                 pins=None, n=None, n_lock=None, mirror_of=None, twin=None):
         self.id = int(id)
         self.a = int(a)
         self.b = int(b)
@@ -49,6 +55,13 @@ class Arc:
         self.rail = rail
         self.n = n
         self.n_lock = n_lock
+        # mirror_of: this arc is GENERATED from another and is thrown away and
+        # rebuilt on every sync.
+        self.mirror_of = mirror_of
+        # twin: this arc was AUTHORED but is the mirror partner of another
+        # authored arc. It is never deleted; the pairing exists only so both
+        # sides get the same subdivision count.
+        self.twin = twin
 
     def length(self):
         if len(self.path) < 2:
@@ -59,12 +72,14 @@ class Arc:
         return {"id": self.id, "a": self.a, "b": self.b,
                 "path": [[float(x) for x in p] for p in self.path],
                 "pins": self.pins, "type": self.type, "rail": self.rail,
-                "n": self.n, "n_lock": self.n_lock}
+                "n": self.n, "n_lock": self.n_lock, "mirror_of": self.mirror_of,
+                "twin": self.twin}
 
     @staticmethod
     def from_dict(d):
         return Arc(d["id"], d["a"], d["b"], d["path"], d.get("type", "flow"),
-                   d.get("rail", "surface"), d.get("pins"), d.get("n"), d.get("n_lock"))
+                   d.get("rail", "surface"), d.get("pins"), d.get("n"),
+                   d.get("n_lock"), d.get("mirror_of"), d.get("twin"))
 
 
 class Patch:

@@ -6,6 +6,7 @@ import numpy as np
 from mathutils import Vector
 
 from ..core import delta as delta_mod
+from ..core import symmetry as sym
 from ..core.build import build, mesh_stats
 from ..core.graph import GRAPH_KEY, LayoutGraph, from_edge_chains, trace_chains
 from ..core.surface import Surface
@@ -56,12 +57,22 @@ def rebuild_object(obj, context, report_fn=None):
     surface = _surface_for(graph, context)
     if surface is not None:
         graph.refresh_positions(surface)
+    sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
+    graph.discover_patches(
+        normal_at=surface.normal_at if surface else None,
+        corner_angle=st.corner_angle,
+    )
     project = surface.project if (surface and st.reproject) else None
 
     verts, quads, prov, report = build(
         graph, target_edge=st.target_edge, project=project,
         relax_iters=st.relax_iters, fill_background=st.fill_background,
     )
+
+    if st.symmetry_axis != "NONE" and len(verts):
+        verts, symrep = sym.symmetrize_verts(verts, st.symmetry_axis,
+                                             st.symmetry_tolerance)
+        report["symmetry"] = symrep
 
     deltas = delta_mod.load(obj)
     if deltas["offsets"] and len(verts):
@@ -213,6 +224,11 @@ def clean_build(obj, context):
     surface = _surface_for(graph, context)
     if surface is not None:
         graph.refresh_positions(surface)
+    sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
+    graph.discover_patches(
+        normal_at=surface.normal_at if surface else None,
+        corner_angle=st.corner_angle,
+    )
     project = surface.project if (surface and st.reproject) else None
     verts, _, prov, _ = build(graph, target_edge=st.target_edge, project=project,
                               relax_iters=st.relax_iters,
