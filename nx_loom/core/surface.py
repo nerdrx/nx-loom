@@ -38,6 +38,10 @@ class Surface:
         # bisector of the facets meeting at the rim and is well defined.
         self.vnormals = np.array([v.normal[:] for v in bm.verts], dtype=float)
         self.tris = np.array([[l.vert.index for l in f.loops] for f in bm.faces], dtype=int)
+        # Cached: ray_hits needs it per ray, and recomputing a min/max over
+        # every vertex per ray made drawing on a dense sculpt unusable.
+        self.span = float(np.linalg.norm(self.verts.max(axis=0) - self.verts.min(axis=0))) \
+            if len(self.verts) else 1.0
         self.tree = BVHTree.FromPolygons(
             [tuple(v) for v in self.verts], [tuple(t) for t in self.tris], all_triangles=True
         )

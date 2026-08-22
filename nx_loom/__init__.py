@@ -1,7 +1,7 @@
 bl_info = {
     "name": "NX Loom",
     "author": "nerdrx + Claude",
-    "version": (0, 9, 0),
+    "version": (0, 9, 1),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > NX Loom",
     "description": "Authored topology: draw the layout, the quads are generated. "

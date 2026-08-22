@@ -40,9 +40,7 @@ def ray_hits(surface, origin, direction, max_hits=6):
     if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
         return []
     d = Vector(tuple(direction)).normalized()
-    span = float(np.linalg.norm(surface.verts.max(axis=0) - surface.verts.min(axis=0))) \
-        if len(surface.verts) else 1.0
-    eps = max(span * 1e-6, 1e-9)
+    eps = max(getattr(surface, "span", 1.0) * 1e-6, 1e-9)
     cur = Vector(tuple(origin))
     out = []
     for _ in range(max_hits):
@@ -80,8 +78,7 @@ def trace_rays(surface, rays, min_step=0.0, anchor=None, max_hits=6):
     nearest = [h[0] for h in cands]
     steps = [float(np.linalg.norm(nearest[i] - nearest[i - 1]))
              for i in range(1, len(nearest))]
-    span = float(np.linalg.norm(surface.verts.max(axis=0) - surface.verts.min(axis=0))) \
-        if len(surface.verts) else 1.0
+    span = getattr(surface, "span", 1.0)
     if steps:
         median = float(np.median(steps))
         max_jump = max(median * 5.0, span * 0.02)

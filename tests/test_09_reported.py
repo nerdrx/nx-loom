@@ -178,4 +178,100 @@ def run():
     out.append(("two comparable regions are both kept",
                 len(background_patches(g2)) == 0,
                 f"{len(g2.patches)} patches"))
+
+    out += run_point_and_drag()
+    return out
+
+
+def run_point_and_drag():
+    """Placing a point, and dragging on a dense mesh. Both reported broken."""
+    import time
+
+    from nx_loom.core import symmetry as sym
+    from nx_loom.ops.draw import commit_path, refresh
+    from nx_loom.ops.layout import set_graph
+
+    out = []
+
+    # A node with no arcs is the point you just placed. Sweeping every orphan
+    # on refresh deleted it immediately, which made point-first authoring
+    # impossible — the anchor was gone before the second click.
+    for axis in ("NONE", "X"):
+        g = LayoutGraph()
+        nid = A.new_node(g, [0.3, 0.0, 0.95])
+        sym.sync(g, axis, 0.002, None)
+        out.append((f"a placed point survives a sync (symmetry {axis})",
+                    nid in g.nodes, f"{len(g.nodes)} nodes left"))
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1.0)
+    src = bpy.context.active_object
+    st = bpy.context.scene.nx_loom
+    st.target_edge = 0.3
+    st.relax_iters = 2
+    st.symmetry_axis = "NONE"
+    st.size_mode = "EDGE"
+    bpy.ops.nxloom.new_layout()
+    obj = bpy.context.active_object
+    surf = Surface(src, bpy.context.evaluated_depsgraph_get())
+
+    # place two points with nothing attached, exactly as clicking does
+    graph = get_graph(obj)
+    a = A.resolve_anchor(graph, np.array([1.0, 0.0, 0.0]), 0.1, surf)[0]
+    refresh(obj, graph, bpy.context, rebuild=False)
+    graph = get_graph(obj)
+    out.append(("the first point is still there after a refresh",
+                a in graph.nodes, f"{len(graph.nodes)} nodes"))
+
+    b = A.resolve_anchor(graph, np.array([0.0, 1.0, 0.0]), 0.1, surf)[0]
+    refresh(obj, graph, bpy.context, rebuild=False)
+    graph = get_graph(obj)
+    out.append(("and so is the second", a in graph.nodes and b in graph.nodes,
+                f"{len(graph.nodes)} nodes"))
+
+    # then connect them, which is what the next click does
+    path = np.array([[1.0, 0.0, 0.0], [0.7, 0.7, 0.0], [0.0, 1.0, 0.0]])
+    res = commit_path(graph, surf, path, 0.1, 0.02, start_node=a)
+    out.append(("two placed points can then be joined",
+                res is not None and len(graph.arcs) == 1,
+                f"{len(graph.arcs)} arcs from {len(graph.nodes)} nodes"))
+
+    # dragging: tracing one new sample per move must match tracing in one go,
+    # and must not get slower as the reference gets denser
+    rays = []
+    for k in range(60):
+        t = k / 60 * 1.2 - 0.6
+        p = np.array([np.sin(t), np.cos(t), 0.3])
+        rays.append((p * 3.0, -p))
+    inc = []
+    for r in rays:
+        got = trace_rays(surf, [r], anchor=inc[-1] if inc else None)
+        if len(got):
+            inc.append(got[0])
+    batch = trace_rays(surf, rays)
+    agree = (len(inc) == len(batch)
+             and float(np.abs(np.asarray(inc) - batch).max()) < 1e-9)
+    out.append(("incremental tracing matches tracing the whole stroke", agree,
+                f"{len(inc)} vs {len(batch)} samples"))
+
+    def per_ray(seg, ring):
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=ring,
+                                             radius=1.0)
+        s2 = Surface(bpy.context.active_object,
+                     bpy.context.evaluated_depsgraph_get())
+        t0 = time.perf_counter()
+        for r in rays:
+            trace_rays(s2, [r])
+        return (time.perf_counter() - t0) / len(rays), len(s2.verts)
+
+    fast, n_small = per_ray(24, 12)
+    slow, n_big = per_ray(160, 80)
+    ratio = slow / max(fast, 1e-9)
+    # Recomputing the model's bounding span inside every ray made this scale
+    # with vertex count; it is cached on the Surface now.
+    out.append(("tracing does not slow down as the sculpt gets denser",
+                ratio < 4.0,
+                f"{n_small} verts {fast*1e6:.0f}us/ray vs {n_big} verts "
+                f"{slow*1e6:.0f}us/ray ({ratio:.1f}x)"))
     return out

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.9.1 — unreleased
+
+Two regressions reported from drawing on a real model.
+
+**Placing a point deleted it.** A node with no arcs is the point you just
+placed. Symmetry sync swept every orphan node on each refresh, so the anchor
+was gone before the second click and point-first authoring was impossible —
+including with symmetry switched off, since the sweep ran either way. Only
+derived nodes are swept now.
+
+**Dragging was unusable on a dense mesh.** Two compounding causes:
+
+- `ray_hits` recomputed the model's bounding span from every vertex **on every
+  ray**, so tracing scaled with the reference's vertex count.
+- The modal re-traced the *entire* stroke on every mouse-move, which is
+  quadratic in stroke length.
+
+Together: 9.7 ms per mouse-move on an 8k-vertex sphere, worse as either grew.
+The span is cached on the Surface, and a drag now traces only its newest
+sample. Measured **0.01–0.02 ms per mouse-move at 32k vertices** — roughly a
+thousand times faster and no longer sensitive to mesh density.
+
+213 headless checks + 8 GUI checks.
+
+
 ## 0.9.0 — unreleased
 
 **Layout retargeting.** Move a layout from one mesh onto another, topology and

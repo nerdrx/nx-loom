@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .authoring import add_arc, new_node, prune_orphan_nodes
+from .authoring import add_arc, new_node
 
 AXIS_INDEX = {"X": 0, "Y": 1, "Z": 2}
 
@@ -126,7 +126,10 @@ def _drop_derived(graph, surface=None):
                if node.mirror_of is not None and nid not in used]
     for nid in n_nodes:
         del graph.nodes[nid]
-    prune_orphan_nodes(graph)
+    # Only derived nodes are swept. A node with no arcs is authored data — the
+    # point you just placed, before it has anything attached — and pruning
+    # every orphan here deleted it on the very next refresh, which made
+    # placing points impossible.
     return {"dropped_arcs": len(n_arcs), "dropped_nodes": len(n_nodes),
             "mirrored": 0, "adopted": 0, "split": 0, "on_plane": 0}
 

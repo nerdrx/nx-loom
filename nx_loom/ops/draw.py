@@ -62,6 +62,14 @@ def commit_arc(graph, surface, rays, snap_radius, min_step,
     nothing usable — off-surface, too short, or a loop back onto its own start.
     """
     path = trace_rays(surface, rays, min_step=min_step * 0.25)
+    return commit_path(graph, surface, path, snap_radius, min_step,
+                       arc_type, start_node)
+
+
+def commit_path(graph, surface, path, snap_radius, min_step,
+                arc_type="flow", start_node=None):
+    """Add an arc from an already-traced surface path."""
+    path = np.asarray(path, dtype=float)
     if len(path) < 2:
         return None
 
@@ -137,6 +145,7 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         self.press_xy = None
         self.press_ray = None
         self.stroke = []
+        self.stroke_pts = []
         self.made = 0
 
         context.window.cursor_modal_set("PAINT_BRUSH")
@@ -189,6 +198,16 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         path = trace_rays(self.surface, rays)
         return path if len(path) >= 2 else None
 
+    def _commit_traced(self, context, path):
+        """Commit a stroke that has already been traced onto the surface."""
+        if len(path) < 2:
+            return False
+        radius = _snap_radius(context, path[-1])
+        res = commit_path(self.graph, self.surface, path, radius, self.min_step,
+                          arc_type=context.scene.nx_loom.arc_type,
+                          start_node=self.anchor)
+        return self._after_commit(context, res)
+
     def _commit(self, context, rays):
         obj = active_object(context)
         point = None
@@ -199,14 +218,20 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         res = commit_arc(self.graph, self.surface, rays, radius, self.min_step,
                          arc_type=context.scene.nx_loom.arc_type,
                          start_node=self.anchor)
+        return self._after_commit(context, res)
+
+    def _after_commit(self, context, res):
         if res is None:
             return False
+        obj = active_object(context)
         _, _, end = res
         self.anchor = end
         self.made += 1
         bad = refresh(obj, self.graph, context,
                       rebuild=context.scene.nx_loom.rebuild_on_draw)
         self.graph = get_graph(obj)
+        if self.anchor not in self.graph.nodes:
+            self.anchor = None
         if bad:
             context.workspace.status_text_set(
                 f"{len(bad)} patch(es) unresolved — add an arc or change density"
@@ -244,11 +269,23 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
                 if not self.dragging and (dx * dx + dy * dy) >= DRAG_PIXELS ** 2:
                     self.dragging = True
                     self.stroke = [self.press_ray]
+                    seed = trace_rays(self.surface, [self.press_ray])
+                    self.stroke_pts = [seed[0]] if len(seed) else []
                 if self.dragging:
-                    self.stroke.append(_mouse_ray(context, event))
+                    # Trace only the new sample. Re-tracing the whole stroke on
+                    # every mouse-move is quadratic in stroke length, and on a
+                    # dense sculpt that alone made dragging unusable.
+                    ray = _mouse_ray(context, event)
+                    self.stroke.append(ray)
+                    prev = self.stroke_pts[-1] if self.stroke_pts else None
+                    pts = trace_rays(self.surface, [ray], anchor=prev)
+                    if len(pts):
+                        if prev is None or float(
+                                np.linalg.norm(pts[0] - prev)) >= self.min_step * 0.25:
+                            self.stroke_pts.append(pts[0])
                     overlay.set_preview(
-                        path=trace_rays(self.surface, self.stroke,
-                                        min_step=self.min_step * 0.25),
+                        path=np.asarray(self.stroke_pts) if len(self.stroke_pts) > 1
+                        else None,
                         anchor=None if self.anchor is None
                         else self.graph.nodes[self.anchor].co)
                     return {"RUNNING_MODAL"}
@@ -266,9 +303,13 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
             self.pressed = False
             ray = _mouse_ray(context, event)
             if self.dragging:
-                self.stroke.append(ray)
-                self._commit(context, self.stroke)
-                self.stroke = []
+                pts = trace_rays(self.surface, [ray],
+                                 anchor=self.stroke_pts[-1] if self.stroke_pts
+                                 else None)
+                if len(pts):
+                    self.stroke_pts.append(pts[0])
+                self._commit_traced(context, self.stroke_pts)
+                self.stroke, self.stroke_pts = [], []
                 self.dragging = False
             else:
                 point = ray_surface(self.surface, *ray)
