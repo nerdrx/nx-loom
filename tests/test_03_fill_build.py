@@ -69,7 +69,7 @@ def run():
         if res is None:
             out.append((f"fill {counts}", False, "returned None"))
             continue
-        v, q, _ = res
+        v, q, _, _ = res
         st = _check(v, q)
         ok = (st["orphans"] == 0 and st["nonmanifold"] == 0
               and st["euler"] == 1 and st["boundary"] == sum(counts))
@@ -82,7 +82,7 @@ def run():
     # the rebuild pipeline: patches weld, no distance merge involved
     for n, te in ((3, 0.5), (3, 0.2), (5, 0.3), (5, 0.15)):
         g = _grid_graph(n)
-        v, q, rep = build(g, target_edge=te, relax_iters=8)
+        v, q, _, rep = build(g, target_edge=te, relax_iters=8)
         st = mesh_stats(v, q)
         ok = (st["nonmanifold_edges"] == 0 and st["euler"] == 1
               and rep["dropped_verts"] == 0 and not rep["failed_patches"])
@@ -92,7 +92,7 @@ def run():
 
     # welding is exact: a k-subdivided 2x2 layout must be a perfect (2k+1)^2 grid
     g = _grid_graph(3)
-    v, q, rep = build(g, target_edge=1.0 / 9.0, relax_iters=0)
+    v, q, _, rep = build(g, target_edge=1.0 / 9.0, relax_iters=0)
     side = int(round(len(v) ** 0.5))
     out.append(("no duplicate boundary verts",
                 side * side == len(v) and len(q) == (side - 1) ** 2,
@@ -103,7 +103,7 @@ def run():
     mono = True
     for te in (1.0, 0.5, 0.25, 0.125, 0.0625):
         g = _grid_graph(3)
-        _, q, _ = build(g, target_edge=te, relax_iters=0)
+        _, q, _, _ = build(g, target_edge=te, relax_iters=0)
         if len(q) < prev:
             mono = False
         prev = len(q)

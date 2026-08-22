@@ -64,6 +64,19 @@ class NXLOOM_PT_main(bpy.types.Panel):
         row = layout.row(align=True)
         row.scale_y = 1.4
         row.operator("nxloom.rebuild", icon="FILE_REFRESH")
+
+        box = layout.box()
+        box.label(text="Hand Edits", icon="MOD_DATA_TRANSFER")
+        from ..core.delta import DELTA_KEY, count as delta_count, load as load_deltas
+        n_delta = delta_count(load_deltas(obj)) if DELTA_KEY in obj else 0
+        if n_delta:
+            box.label(text=f"{n_delta} vertex edit(s) kept", icon="CHECKMARK")
+        else:
+            box.label(text="Move vertices, then capture.")
+        sub = box.row(align=True)
+        sub.operator("nxloom.capture_edits", icon="IMPORT")
+        sub.operator("nxloom.clear_edits", text="", icon="X")
+
         layout.operator("nxloom.apply", icon="CHECKMARK")
 
         graph = get_graph(obj)

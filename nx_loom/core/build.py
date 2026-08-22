@@ -15,7 +15,13 @@ from .surface import resample
 
 
 def build(graph, target_edge=None, project=None, relax_iters=20):
-    """Returns (verts (N,3), quads, report)."""
+    """Returns (verts (N,3), quads, provenance, report).
+
+    ``provenance[i]`` says where vertex i came from — a node, a point along an
+    arc, or a parameterised point inside a patch. It is what the delta layer
+    keys hand edits on, so an edit survives a rebuild instead of being keyed to
+    a vertex index that means something different next time.
+    """
     target_edge = target_edge or graph.settings.get("target_edge", 0.1)
     arc_ids = list(graph.arcs)
     lengths = {a: graph.arcs[a].length() for a in arc_ids}
@@ -29,14 +35,19 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
         graph.arcs[a].n = counts[a]
 
     verts = []
+    prov = []
     node_vert = {}
 
-    def add(pt):
+    def add(pt, tag):
+        prov.append(tag)
+        return _add(pt)
+
+    def _add(pt):
         verts.append(np.asarray(pt, dtype=float))
         return len(verts) - 1
 
     for nid, node in graph.nodes.items():
-        node_vert[nid] = add(node.co)
+        node_vert[nid] = add(node.co, ("n", int(nid)))
 
     # arc vertices: endpoints are the shared node vertices, interior is new
     arc_verts = {}
@@ -45,7 +56,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
         pts = resample(arc.path, counts[aid], project=project)
         ids = [node_vert[arc.a]]
         for k in range(1, counts[aid]):
-            ids.append(add(pts[k]))
+            ids.append(add(pts[k], ("a", int(aid), k / counts[aid])))
         ids.append(node_vert[arc.b])
         verts[ids[0]] = np.asarray(graph.nodes[arc.a].co, dtype=float)
         verts[ids[-1]] = np.asarray(graph.nodes[arc.b].co, dtype=float)
@@ -71,14 +82,19 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
         if res is None:
             failed.append((pid, "no valid split"))
             continue
-        loc_verts, loc_quads, slots = res
+        loc_verts, loc_quads, slots, params = res
 
         remap = {}
         for (_, si, k), loc in slots.items():
             remap[loc] = side_ids[si][k]
         for loc in range(len(loc_verts)):
             if loc not in remap:
-                remap[loc] = add(loc_verts[loc])
+                if params is not None and loc in params:
+                    u, v = params[loc]
+                    tag = ("p", int(pid), float(u), float(v))
+                else:
+                    tag = ("q", int(pid), int(loc))
+                remap[loc] = add(loc_verts[loc], tag)
         patch_quads = [tuple(remap[i] for i in q) for q in loc_quads]
         if _would_be_nonmanifold(quads, patch_quads):
             # A patch whose fill collides with an already-placed one means the
@@ -94,6 +110,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
     compact = {old: new for new, old in enumerate(keep)}
     out_verts = np.array([verts[i] for i in keep]) if keep else np.zeros((0, 3))
     out_quads = [tuple(compact[i] for i in q) for q in quads]
+    out_prov = [prov[i] for i in keep]
 
     report = dict(qrep)
     report.update({
@@ -103,7 +120,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
         "dropped_verts": len(verts) - len(out_verts),
         "target_edge": target_edge,
     })
-    return out_verts, out_quads, report
+    return out_verts, out_quads, out_prov, report
 
 
 def _would_be_nonmanifold(existing, incoming):

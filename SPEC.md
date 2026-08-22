@@ -172,14 +172,49 @@ Rebuild is explicit (`nxloom.rebuild`) or automatic on graph change when
 `scene.nx_loom.auto_rebuild` is set. Auto-rebuild is throttled and always
 runs on the *whole* graph — no partial-update cache in v0.1.
 
-## 5. Delta layer (v0.4, specified now so nothing blocks it)
+## 5. Delta layer **[implemented]**
 
-Manual edits to the generated mesh are stored per-patch in patch-local `(u, v)`
-coordinates plus a normal offset, in `nx_loom_delta`. On rebuild at the **same**
-subdivision counts, deltas are reapplied exactly. On rebuild at *different*
-counts they are resampled bilinearly and the report says so. A patch whose
-deltas cannot be carried is marked `fill: "hold"` and left untouched rather
-than silently flattened.
+Manual edits to the generated mesh are stored in `nx_loom_delta` against each
+vertex's **provenance** — which node it is, where along which arc, or where
+inside which patch — never against its index, because an index means a
+different thing at a different density.
+
+```
+{ "version": 1,
+  "offsets": { "p:2:0.333333:0.666667": [dt, db, dn], ... },
+  "dims":    { "p:2": [p, q], "a:5": [n], ... } }
+```
+
+Offsets are held in a local frame `(tangent, bitangent, normal)` derived from
+the surface normal alone, so an edit follows the sculpt if the reference
+changes instead of hanging in world space. The frame must be a pure function of
+the normal — capture and re-apply have to agree, and determinism is the only
+thing that guarantees it.
+
+**Re-applying at the same counts is lossless.** That is the load-bearing
+guarantee: if it is not exact, the artist's work degrades every time they touch
+the density slider, and the whole non-destructive claim is hollow.
+
+At different counts, offsets are resampled out of the capture-time
+displacement grid — linearly along an arc, bilinearly inside a quad patch. Two
+things this rules out:
+
+- **The grid resolution is recorded, not inferred from the samples.** An arc
+  whose only edit sits at `t = 2/3` would reconstruct as `n = 2`, and the
+  offset would smear along the entire arc.
+- **The kernel must have local support.** Distance weighting over the stored
+  points displaces every other vertex in an edited patch, which breaks the
+  same-density guarantee outright. A sparse grid that is zero except where the
+  artist moved something is exact at grid points by construction and decays to
+  zero away from an edit.
+
+Node edits are density-independent and always exact. An n-sided patch interior
+has no `(u, v)` parameterisation, so its edits are carried at the same counts
+only; the rebuild report says how many were exact, resampled and dropped rather
+than hiding it.
+
+Changing the vertex *count* is refused, not guessed at: adding or deleting
+geometry is a layout change, and the error says to draw it instead.
 
 ## 6. Apply
 

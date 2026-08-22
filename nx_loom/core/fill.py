@@ -121,7 +121,12 @@ def fill_quad_patch(sides):
     fixed = np.zeros(len(verts), dtype=bool)
     for v in slots.values():
         fixed[v] = True
-    return verts, quads, slots, fixed
+
+    params = {}
+    for i in range(1, p):
+        for j in range(1, q):
+            params[i * (q + 1) + j] = (i / p, j / q)
+    return verts, quads, slots, fixed, params
 
 
 def fill_ngon_patch(sides):
@@ -213,11 +218,17 @@ def fill_ngon_patch(sides):
     fixed = np.zeros(len(verts), dtype=bool)
     for v in slots.values():
         fixed[v] = True
-    return verts, quads, slots, fixed
+    return verts, quads, slots, fixed, None
 
 
 def fill_patch(sides, relax_iters=20, project=None):
-    """Dispatch on side count. Returns (verts, quads, slots) or None."""
+    """Dispatch on side count. Returns (verts, quads, slots, params) or None.
+
+    ``params`` maps interior vertex index -> (u, v) for quad patches, and is
+    None for everything else. That is what lets a hand edit on a quad patch be
+    re-applied at a different subdivision count; an n-sided patch has no such
+    parameterisation, so its edits are exact-count only and say so.
+    """
     n = len(sides)
     if n == 4:
         res = fill_quad_patch(sides)
@@ -227,7 +238,7 @@ def fill_patch(sides, relax_iters=20, project=None):
         return None
     if res is None:
         return None
-    verts, quads, slots, fixed = res
+    verts, quads, slots, fixed, params = res
     if relax_iters:
         verts = relax(verts, quads, fixed, iters=relax_iters, project=project)
-    return verts, quads, slots
+    return verts, quads, slots, params

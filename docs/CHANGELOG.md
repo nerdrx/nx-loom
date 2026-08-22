@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.0 — unreleased
+
+The delta layer. Hand edits now survive a rebuild, which is what makes
+"non-destructive" mean anything.
+
+- Edits are keyed on vertex **provenance** (node / point along an arc /
+  parameterised point in a patch), not vertex index, and stored as offsets in a
+  local frame derived from the surface normal.
+- **Re-applying at the same subdivision counts is lossless** — measured exact,
+  and only the edited vertices move.
+- Across a density change, offsets resample out of the capture-time
+  displacement grid: linearly along arcs, bilinearly inside quad patches.
+- `Capture Edits` / `Clear Edits` in the sidebar. Changing the vertex count is
+  refused with an error that says to draw the change instead.
+- `build()` now returns per-vertex provenance; quad fills return interior
+  `(u, v)` so edits are resolution-independent.
+
+Two bugs found by testing rather than by reading, both of which broke the
+lossless guarantee:
+
+- Interpolating stored deltas with a distance weighting has **global support**,
+  so re-applying at the same density displaced every other vertex in an edited
+  patch (0.33 error where it had to be zero).
+- Capture-time resolution **cannot be inferred from the stored samples**. An
+  arc with one edit at `t = 2/3` reconstructs as `n = 2` and smears the offset
+  along the whole arc. It is recorded explicitly now.
+
+94 headless checks + 8 GUI checks.
+
+
 ## 0.2.0 — unreleased
 
 The drawing tool. A layout can now be authored from nothing instead of traced

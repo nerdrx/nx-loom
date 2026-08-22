@@ -41,6 +41,15 @@ and NX Loom generates the mesh. Quad patches get a discrete Coons grid;
 3-, 5- and 6-sided patches (where the poles live) get split templates. Interiors
 relax and reproject onto the reference.
 
+### Hand edits survive the rebuild
+
+The escape hatch is the part that decides whether any of this survives real
+use. Move vertices in Edit Mode, hit **Capture Edits**, and the offsets are
+stored against each vertex's *provenance* — which arc it sits on, where inside
+which patch — rather than its index. Re-applying at the same density is
+lossless; change the density and the edits resample onto the new grid instead
+of vanishing.
+
 ### One slider re-grids everything, and it always closes
 
 For a quad patch to close, opposite sides need equal subdivision counts. Across
@@ -65,17 +74,18 @@ solve.
 
 ## Status
 
-**v0.2.0 — you can draw a layout and get a mesh.**
+**v0.3.0 — draw a layout, get a mesh, and hand-edit it without losing the edits.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
-rebuild pipeline, the **Loom Draw** toolbar tool and the viewport overlay.
+rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
+delta layer.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 79 headless
+layouts — including a layout *drawn from nothing* on a sphere. 94 headless
 checks plus 8 GUI checks, green on Blender 5.2.0.
 
-Not written yet: the delta layer for hand edits, data transfer on Apply, and
-every suggestion lane.
+Not written yet: data transfer on Apply (UVs, weights, shape keys), and every
+suggestion lane.
 
 A patch NX Loom cannot quantize, split or fill without going non-manifold is
 dropped and named in the report — never fudged into the mesh.
@@ -100,7 +110,10 @@ dropped and named in the report — never fudged into the mesh.
    into a T-junction. Enclose an area and it becomes a patch, filled at once.
 4. Adjust **Density**. Any patch the solver refuses is drawn **red** in the
    viewport and counted in the panel, so a problem is visible while you draw.
-5. **Apply** when you want a plain mesh.
+5. Need a vertex somewhere the solver would not put it? Move it in Edit Mode
+   and hit **Capture Edits**. The edit is stored against the layout, not the
+   vertex index — change the density afterwards and it is still there.
+6. **Apply** when you want a plain mesh.
 
 To trace an existing mesh instead of drawing: select edges in Edit Mode and use
 **Layout from Selected Edges**.

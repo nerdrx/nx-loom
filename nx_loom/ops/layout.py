@@ -2,13 +2,15 @@
 
 import bmesh
 import bpy
+import numpy as np
 from mathutils import Vector
 
+from ..core import delta as delta_mod
 from ..core.build import build, mesh_stats
 from ..core.graph import GRAPH_KEY, LayoutGraph, from_edge_chains, trace_chains
 from ..core.surface import Surface
 
-DELTA_KEY = "nx_loom_delta"
+DELTA_KEY = delta_mod.DELTA_KEY
 
 
 def active_object(context):
@@ -56,9 +58,15 @@ def rebuild_object(obj, context, report_fn=None):
         graph.refresh_positions(surface)
     project = surface.project if (surface and st.reproject) else None
 
-    verts, quads, report = build(
+    verts, quads, prov, report = build(
         graph, target_edge=st.target_edge, project=project, relax_iters=st.relax_iters
     )
+
+    deltas = delta_mod.load(obj)
+    if deltas["offsets"] and len(verts):
+        normal_fn = surface.normal_at if surface else (lambda p: (0.0, 0.0, 1.0))
+        verts, dstats = delta_mod.apply_deltas(verts, prov, normal_fn, deltas)
+        report["delta"] = dstats
     report.update(mesh_stats(verts, quads))
 
     mw_inv = obj.matrix_world.inverted()
@@ -178,6 +186,85 @@ class NXLOOM_OT_new_layout(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def clean_build(obj, context):
+    """Rebuild without the delta layer. Returns (verts, provenance, surface).
+
+    Capture works by differencing the edited mesh against this, so the stored
+    offsets are always relative to the pristine generated surface rather than
+    accumulating on top of themselves.
+    """
+    graph = get_graph(obj)
+    if graph is None:
+        return None, None, None
+    st = context.scene.nx_loom
+    surface = _surface_for(graph, context)
+    if surface is not None:
+        graph.refresh_positions(surface)
+    project = surface.project if (surface and st.reproject) else None
+    verts, _, prov, _ = build(graph, target_edge=st.target_edge, project=project,
+                              relax_iters=st.relax_iters)
+    return verts, prov, surface
+
+
+class NXLOOM_OT_capture_edits(bpy.types.Operator):
+    """Fold your hand edits into the layout so they survive a rebuild"""
+
+    bl_idname = "nxloom.capture_edits"
+    bl_label = "Capture Edits"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
+    def execute(self, context):
+        obj = active_object(context)
+        if obj.mode == "EDIT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        clean, prov, surface = clean_build(obj, context)
+        if clean is None:
+            self.report({"ERROR"}, "No layout on this object")
+            return {"CANCELLED"}
+
+        mw = obj.matrix_world
+        edited = np.array([tuple(mw @ v.co) for v in obj.data.vertices], dtype=float)
+        if len(edited) != len(clean):
+            self.report(
+                {"ERROR"},
+                f"Vertex count changed ({len(clean)} generated, {len(edited)} now). "
+                "Move vertices to record an edit — adding or deleting them is a "
+                "layout change, so draw it instead."
+            )
+            return {"CANCELLED"}
+
+        normal_fn = surface.normal_at if surface else (lambda p: (0.0, 0.0, 1.0))
+        table = delta_mod.capture(clean, edited, prov, normal_fn)
+        delta_mod.store(obj, table)
+        self.report({"INFO"}, f"{delta_mod.count(table)} edited vert(s) captured")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_clear_edits(bpy.types.Operator):
+    """Discard captured hand edits and return to the generated surface"""
+
+    bl_idname = "nxloom.clear_edits"
+    bl_label = "Clear Edits"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and DELTA_KEY in obj)
+
+    def execute(self, context):
+        obj = active_object(context)
+        delta_mod.store(obj, None)
+        rebuild_object(obj, context)
+        self.report({"INFO"}, "Hand edits discarded")
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_rebuild(bpy.types.Operator):
     """Regenerate the mesh from its layout graph"""
 
@@ -228,6 +315,8 @@ class NXLOOM_OT_apply(bpy.types.Operator):
 
 _CLASSES = (
     NXLOOM_OT_new_layout,
+    NXLOOM_OT_capture_edits,
+    NXLOOM_OT_clear_edits,
     NXLOOM_OT_layout_from_selection,
     NXLOOM_OT_rebuild,
     NXLOOM_OT_apply,
