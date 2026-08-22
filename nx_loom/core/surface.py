@@ -32,6 +32,11 @@ class Surface:
         bm.faces.ensure_lookup_table()
 
         self.verts = np.array([v.co[:] for v in bm.verts], dtype=float)
+        # Smooth (area-averaged) vertex normals. At a sharp rim the *face*
+        # normal is whichever facet the nearest-point query landed on, which
+        # makes the tangent plane there arbitrary; the smooth normal is the
+        # bisector of the facets meeting at the rim and is well defined.
+        self.vnormals = np.array([v.normal[:] for v in bm.verts], dtype=float)
         self.tris = np.array([[l.vert.index for l in f.loops] for f in bm.faces], dtype=int)
         self.tree = BVHTree.FromPolygons(
             [tuple(v) for v in self.verts], [tuple(t) for t in self.tris], all_triangles=True
@@ -68,7 +73,27 @@ class Surface:
         return out
 
     def normal_at(self, co):
-        hit, nrm, _, _ = self.tree.find_nearest(Vector(co))
+        """Smooth surface normal, barycentrically interpolated.
+
+        Used to orient the tangent plane the layout's rotation system is sorted
+        in, so it has to stay continuous across a crease — a face normal does
+        not, and a node sitting on a rim then gets a scrambled arc order and
+        sends the patch traversal through the wrong arc.
+        """
+        hit, nrm, tri, _ = self.tree.find_nearest(Vector(co))
+        if hit is None:
+            return np.array([0.0, 0.0, 1.0])
+        idx = self.tris[int(tri) % len(self.tris)]
+        a, b, c = self.verts[idx]
+        u, v = _barycentric(np.asarray(hit[:]), a, b, c)
+        w = 1.0 - u - v
+        smooth = (self.vnormals[idx[0]] * w + self.vnormals[idx[1]] * u
+                  + self.vnormals[idx[2]] * v)
+        ln = np.linalg.norm(smooth)
+        return smooth / ln if ln > 1e-9 else np.asarray(nrm[:])
+
+    def face_normal_at(self, co):
+        _, nrm, _, _ = self.tree.find_nearest(Vector(co))
         return np.array([0.0, 0.0, 1.0]) if nrm is None else np.asarray(nrm[:])
 
 

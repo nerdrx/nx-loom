@@ -88,6 +88,29 @@ def run():
     # query hit, so a normal-based rotation system scrambles the traversal and
     # fuses the 16 wall quads into two giant patches. The PCA plane of the arc
     # star does not have that ambiguity.
+    # A cone's base rim is where a PCA of the incident arc directions breaks
+    # down: the slant arc has a radial component, so the three directions span
+    # all of 3-space and the plane is arbitrary. Discovery found 3 cycles
+    # instead of 9 and the operator refused outright. The smooth vertex normal
+    # is well defined there.
+    out += _closed_sphere(
+        "cone",
+        lambda: bpy.ops.mesh.primitive_cone_add(vertices=16, radius1=1.0, depth=2.0),
+        (0.5, 0.25),
+        expect_sides={3: 16, 16: 1},
+    )
+
+    # Coarse densities on a UV sphere: the pole fan forces its spokes to a
+    # floor of 2 while every arc around them wants 1, and the relaxation has to
+    # see that floor or rounding lands somewhere no local repair can walk back.
+    out += _closed_sphere(
+        "uv sphere coarse",
+        lambda: bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8,
+                                                     radius=1.0),
+        (0.9, 0.5),
+        expect_sides={3: 32, 4: 96},
+    )
+
     out += _closed_sphere(
         "cylinder",
         lambda: bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=1.0, depth=2.0),

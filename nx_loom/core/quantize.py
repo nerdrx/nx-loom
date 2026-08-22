@@ -412,32 +412,71 @@ def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None):
     constraints = build_constraints(patches, sides_of)
     floors = arc_floors(arc_ids, patches, sides_of)
 
-    real = _real_solve(arc_ids, targets, constraints, locks)
-    counts = {}
-    for a in arc_ids:
-        if a in locks:
-            counts[a] = max(1, int(locks[a]))
-        else:
-            counts[a] = max(floors[a], int(round(real.get(a, targets[a]))))
+    # The relaxation has to see the floors. Solving from raw targets and only
+    # clamping afterwards produces a starting point that is globally
+    # inconsistent — a pole fan forces its spokes to 2 while every arc around
+    # it sits at 1, and no amount of local repair walks that back. Raising the
+    # targets lets the equality rows propagate the floor through the whole
+    # chain before anything is rounded. Regret is still measured against the
+    # true targets.
+    solve_targets = {a: max(targets[a], float(floors[a])) for a in arc_ids}
+    real = _real_solve(arc_ids, solve_targets, constraints, locks)
 
-    # Parity first, as one GF(2) solve. Afterwards every constraint holds mod 2,
-    # so the equality residuals are even and can be repaired in steps of 2 —
-    # which leaves the parities the GF(2) pass just fixed untouched. Bumping an
-    # infeasible split then perturbs the equalities again, so the three passes
-    # iterate until they stop changing anything.
-    stuck, bumped = [], []
-    for _ in range(6):
+    def _settle(start):
+        """Run parity -> equality -> split-feasibility to a fixed point."""
+        counts = dict(start)
+        stuck, bumped = [], []
+        prev_bad = None
+        for _ in range(12):
+            stuck = _gf2_fix(counts, constraints, targets, locks, floors)
+            bad2 = _repair(counts, constraints, targets, locks, arc_ids, floors,
+                           step_size=2)
+            newly = _bump_infeasible_splits(counts, patches, sides_of, targets,
+                                            locks, floors)
+            bumped.extend(newly)
+            if not bad2 and not newly:
+                break
+            if bad2:
+                # Parity-preserving +-2 steps alone cannot reach every feasible
+                # point. A quad side pinned at its floor by a neighbouring
+                # triangle needs a +-1 move plus a compensating parity fix
+                # somewhere else, so take the unit step here and let the next
+                # GF(2) pass repair the parity it breaks.
+                _repair(counts, constraints, targets, locks, arc_ids, floors,
+                        step_size=1)
+            if not newly and prev_bad is not None and len(bad2) >= prev_bad:
+                if not bad2:
+                    break
+            prev_bad = len(bad2)
+        # a bump lands on an arc shared with a neighbouring patch, so the
+        # equality rows have to be settled *after* the last bump, not before it
         stuck = _gf2_fix(counts, constraints, targets, locks, floors)
-        unsatisfied = _repair(counts, constraints, targets, locks, arc_ids, floors, step_size=2)
-        newly = _bump_infeasible_splits(counts, patches, sides_of, targets, locks, floors)
-        bumped.extend(newly)
-        if not newly:
+        bad = _repair(counts, constraints, targets, locks, arc_ids, floors, step_size=2)
+        bad = list({id(c): c for c in (stuck + bad)}.values())
+        return counts, bad, bumped
+
+    # Greedy repair is a hill-climb and can stall in a local minimum where no
+    # single step reduces the violation even though a feasible point exists.
+    # Restarting from a different rounding of the same real solution costs
+    # almost nothing and reliably shakes it loose; the offsets are fixed, so
+    # this stays deterministic.
+    best = None
+    for shift in (0.0, 0.25, -0.25, 0.5, -0.5):
+        start = {}
+        for a in arc_ids:
+            if a in locks:
+                start[a] = max(1, int(locks[a]))
+            else:
+                start[a] = max(floors[a],
+                               int(round(real.get(a, solve_targets[a]) + shift)))
+        counts, bad, bumped = _settle(start)
+        regret = sum(abs(counts[x] - targets[x]) for x in arc_ids)
+        score = (len(bad), regret)
+        if best is None or score < best[0]:
+            best = (score, counts, bad, bumped, shift)
+        if not bad:
             break
-    # A bump lands on an arc shared with a neighbouring patch, so the equality
-    # rows have to be settled *after* the last bump, not before it.
-    stuck = _gf2_fix(counts, constraints, targets, locks, floors)
-    unsatisfied = _repair(counts, constraints, targets, locks, arc_ids, floors, step_size=2)
-    unsatisfied = list({id(c): c for c in (stuck + unsatisfied)}.values())
+    _, counts, unsatisfied, bumped, used_shift = best
 
     bad_patches = sorted({c.patch for c in unsatisfied})
     split_failures = []
@@ -456,8 +495,9 @@ def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None):
         "arcs": len(arc_ids),
         "constraints": len(constraints),
         "unsatisfied_patches": bad_patches,
-        "gf2_stuck": len(stuck),
+        "parity_stuck": sum(1 for c in unsatisfied if c.parity),
         "split_bumps": len(bumped),
+        "round_shift": used_shift,
         "split_failures": split_failures,
         "total_regret": total_regret,
         "mean_regret": total_regret / max(len(arc_ids), 1),

@@ -69,6 +69,12 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "the surface occlude it",
         default=True,
     )
+    transfer_data: BoolProperty(
+        name="Transfer Data on Apply",
+        description="Carry UVs, materials, vertex groups, shape keys, creases "
+                    "and bevel weights over from the reference when applying",
+        default=True,
+    )
     auto_rebuild: BoolProperty(
         name="Auto Rebuild",
         description="Rebuild whenever the layout or density changes",

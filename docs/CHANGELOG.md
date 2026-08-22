@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+Apply carries your data over, and three solver robustness fixes found by
+sweeping 122 primitive layouts rather than by reading code.
+
+- **Data transfer on Apply**: UVs, materials, vertex groups, shape keys,
+  creases and bevel weights re-projected from the reference onto the new
+  topology. QuadForge's `core/transfer.py`, vendored verbatim — see
+  `nx_loom/core/vendor/PROVENANCE.md`. Opt-out, and never fatal.
+  Measured: weights still correlate 0.996 with the source gradient.
+- **Rotation system now uses the smooth vertex normal.** A PCA of the incident
+  arc directions assumes they are coplanar. That holds at a cylinder rim, but
+  at a cone's base the slant arc has a radial component and the three
+  directions span all of 3-space, so the plane was arbitrary: discovery found
+  3 cycles instead of 9 and **every cone was refused outright**. Cones now
+  resolve to n triangles plus a base n-gon.
+- **The relaxation is floor-aware.** Solving from raw targets and clamping to
+  the floors afterwards leaves a globally inconsistent starting point — a pole
+  fan pinned at 2 surrounded by arcs at 1 — which local repair cannot walk
+  back. This left holes at the poles of coarse UV spheres.
+- **Quantizing restarts from several roundings** when greedy repair stalls in a
+  local minimum. Deterministic, and 22 of 122 swept layouts need it.
+
+Sweep: 122 layouts across spheres, icospheres, cylinders, cones and tori at
+three densities each — 0 with unresolved or broken patches, up from 10 failures
+and 9 outright refusals.
+
+108 headless checks + 8 GUI checks.
+
+
 ## 0.3.0 — unreleased
 
 The delta layer. Hand edits now survive a rebuild, which is what makes

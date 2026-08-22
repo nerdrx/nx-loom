@@ -77,7 +77,9 @@ class NXLOOM_PT_main(bpy.types.Panel):
         sub.operator("nxloom.capture_edits", icon="IMPORT")
         sub.operator("nxloom.clear_edits", text="", icon="X")
 
-        layout.operator("nxloom.apply", icon="CHECKMARK")
+        box = layout.box()
+        box.prop(st, "transfer_data")
+        box.operator("nxloom.apply", icon="CHECKMARK")
 
         graph = get_graph(obj)
         if graph is not None:

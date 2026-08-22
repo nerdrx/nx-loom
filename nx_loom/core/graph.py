@@ -256,14 +256,16 @@ class LayoutGraph:
     def _ccw_order(self, nid, incident, normal_at):
         """Sort arcs around a node by angle in its tangent plane.
 
-        The plane comes from a PCA of the *incident arc directions*, not from
-        the reference normal. On a sharp rim the BVH normal is whichever facet
-        the nearest-point query happened to land on — cap or wall — and a node
-        that picks the wrong one gets a scrambled rotation system, which sends
-        the face traversal through the wrong arc and fuses patches that should
-        be separate. The arc directions are unambiguous there; the surface
-        normal is only used to fix the plane's sign so orientation stays
-        consistent with the reference.
+        The plane is normal to the *smooth* surface normal, which stays
+        continuous across a crease — at a rim the face normal is whichever
+        facet the nearest-point query hit, and a node that picks the wrong one
+        gets a scrambled order that sends the traversal through the wrong arc.
+
+        A PCA of the incident arc directions is the fallback, for nodes with no
+        usable normal. It is only a fallback: it assumes the arcs are coplanar,
+        which holds at a cylinder rim (ring arcs plus a wall arc span exactly
+        the tangent plane) but fails at a cone's base, where the slant arc has
+        a radial component and the three directions span all of 3-space.
         """
         p = self.nodes[nid].co
         dirs = []
@@ -275,19 +277,25 @@ class LayoutGraph:
             dirs.append(d / nd if nd > 1e-12 else np.array([1.0, 0.0, 0.0]))
         D = np.asarray(dirs)
 
-        if len(D) >= 2:
-            # smallest principal direction of the arc star = the plane normal
-            _, _, vt = np.linalg.svd(D - D.mean(axis=0) if len(D) > 2 else D)
-            nrm = vt[-1]
-        else:
-            nrm = np.array([0.0, 0.0, 1.0])
-        if np.linalg.norm(nrm) < 1e-12:
-            nrm = np.array([0.0, 0.0, 1.0])
-        nrm = nrm / np.linalg.norm(nrm)
-
-        ref = np.asarray(normal_at(p), dtype=float) if normal_at else None
-        if ref is not None and np.linalg.norm(ref) > 1e-12 and (nrm @ ref) < 0:
-            nrm = -nrm
+        nrm = None
+        if normal_at is not None:
+            ref = np.asarray(normal_at(p), dtype=float)
+            ln = np.linalg.norm(ref)
+            if ln > 1e-9:
+                cand = ref / ln
+                # unusable if every arc runs along it (nothing left to sort by)
+                flat = D - np.outer(D @ cand, cand)
+                if np.min(np.linalg.norm(flat, axis=1)) > 1e-6:
+                    nrm = cand
+        if nrm is None:
+            if len(D) >= 2:
+                _, _, vt = np.linalg.svd(D - D.mean(axis=0) if len(D) > 2 else D)
+                nrm = vt[-1]
+            else:
+                nrm = np.array([0.0, 0.0, 1.0])
+            if np.linalg.norm(nrm) < 1e-12:
+                nrm = np.array([0.0, 0.0, 1.0])
+            nrm = nrm / np.linalg.norm(nrm)
 
         t = D[0] - nrm * (D[0] @ nrm)
         if np.linalg.norm(t) < 1e-9:

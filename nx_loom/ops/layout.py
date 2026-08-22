@@ -293,7 +293,7 @@ class NXLOOM_OT_rebuild(bpy.types.Operator):
 
 
 class NXLOOM_OT_apply(bpy.types.Operator):
-    """Drop the layout and leave an ordinary mesh"""
+    """Drop the layout and leave an ordinary mesh, carrying the reference's data"""
 
     bl_idname = "nxloom.apply"
     bl_label = "Apply"
@@ -306,10 +306,41 @@ class NXLOOM_OT_apply(bpy.types.Operator):
 
     def execute(self, context):
         obj = active_object(context)
+        st = context.scene.nx_loom
+        graph = get_graph(obj)
+        note = ""
+
+        if st.transfer_data and graph is not None:
+            ref = bpy.data.objects.get(graph.reference) if graph.reference else None
+            if ref is None:
+                ref = st.reference
+            if ref is not None and ref is not obj and ref.type == "MESH":
+                from ..core.vendor import qf_transfer
+                snap = None
+                try:
+                    snap = qf_transfer.capture(ref)
+                    rep = qf_transfer.apply(snap, obj)
+                    note = (f" — UVs {rep['uv_layers']}, groups {rep['weights']}, "
+                            f"keys {rep['shape_keys']}, materials {rep['materials']}")
+                    for w in rep.get("warnings", ())[:2]:
+                        self.report({"WARNING"}, f"transfer: {w}")
+                except Exception as e:
+                    self.report({"WARNING"}, f"Data transfer failed: {e}")
+                finally:
+                    if snap is not None:
+                        try:
+                            snap.free()
+                        except Exception:
+                            pass
+            else:
+                self.report({"WARNING"}, "No reference mesh — nothing to transfer")
+
         del obj[GRAPH_KEY]
         if DELTA_KEY in obj:
             del obj[DELTA_KEY]
-        self.report({"INFO"}, "Layout applied — this is a plain mesh now")
+        if "nx_loom_bad_patches" in obj:
+            del obj["nx_loom_bad_patches"]
+        self.report({"INFO"}, f"Layout applied — this is a plain mesh now{note}")
         return {"FINISHED"}
 
 

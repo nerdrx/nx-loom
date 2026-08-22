@@ -116,13 +116,27 @@ crash — when the counts admit no integer split with every `aᵢ ≥ 1`.
 
 Solve order (`core/quantize.py`):
 
-1. **Targets.** `tᵢ = arc_length(i) / target_edge`, floored at 1.
+0. **Floors.** Every side of a non-quad patch needs at least 2 segments. Where
+   that side is a single arc, the arc's floor is 2, and *every* pass respects
+   it — the GF(2) pass moves in ±1 steps and will otherwise drag a floored side
+   straight back down.
+1. **Targets.** `tᵢ = arc_length(i) / target_edge`, floored at 1, and **raised
+   to the arc's floor before the relaxation runs**. Solving from raw targets
+   and clamping afterwards produces a globally inconsistent starting point — a
+   pole fan forces its spokes to 2 while every arc around them sits at 1 — and
+   no amount of local repair walks that back. Regret is still measured against
+   the true targets.
 2. **Real solve.** Equality-constrained least squares (dense KKT) over the side
    constraints, ignoring integrality and parity.
 3. **Round** to nearest integer, clamp to `≥ 1`, honour `n_lock`.
 4. **Repair.** Greedy coordinate descent: while any constraint is violated,
    move the arc with the lowest *rounding regret* (`|n − t|` increase) by ±1.
    Bounded iterations; failure is reported per-patch, never silently ignored.
+
+Steps 2–4 are re-run from several roundings of the same real solution
+(`±0.25`, `±0.5`). Greedy repair is a hill-climb and stalls in local minima;
+restarting costs almost nothing, stays deterministic, and measurably matters —
+22 of 122 swept layouts land on a non-zero shift.
 
 This is a heuristic, not the min-cost-flow ILP of Campen/Bommes/Kobbelt 2015.
 It is exact on the common cases (single-arc sides, mostly-quad layouts) and
@@ -218,12 +232,24 @@ geometry is a layout change, and the error says to draw it instead.
 
 ## 6. Apply
 
-`nxloom.apply` drops `nx_loom_graph` and `nx_loom_delta` and leaves an ordinary
-mesh. Data transfer from the reference (UVs, materials, vertex groups, shape
-keys, creases) reuses QuadForge's `core/transfer.py`, **vendored** under
-`nx_loom/core/vendor/` with the upstream commit recorded in
-`nx_loom/core/vendor/PROVENANCE.md`. Vendored files are not edited in place;
-fixes go upstream to QuadForge first.
+`nxloom.apply` drops `nx_loom_graph`, `nx_loom_delta` and the patch-health
+cache, leaving an ordinary mesh.
+
+Before dropping them it transfers the reference's data onto the new topology —
+UVs (island-constrained), materials, vertex groups, shape keys, creases and
+bevel weights. That projection is QuadForge's `core/transfer.py`, **vendored
+verbatim** at `nx_loom/core/vendor/qf_transfer.py` with the upstream commit in
+`PROVENANCE.md`. It is a large module that took a long saga upstream to get
+right (UV seam bleed, weight leaks under exact symmetry, crease arc routing);
+re-deriving it here would be a mistake.
+
+Vendored files are **not edited in place**. Fixes go upstream to QuadForge
+first, then the file is re-copied and the recorded commit updated. The coupling
+is one argument: `apply()` takes a settings object exposing `preserve_*`
+booleans, and `None` means preserve everything.
+
+Transfer is opt-out (`scene.nx_loom.transfer_data`) and never fatal — a failure
+is reported as a warning and Apply still completes.
 
 ## 7. Suggestion lanes
 

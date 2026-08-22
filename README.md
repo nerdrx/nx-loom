@@ -74,18 +74,19 @@ solve.
 
 ## Status
 
-**v0.3.0 — draw a layout, get a mesh, and hand-edit it without losing the edits.**
+**v0.4.0 — draw it, edit it, apply it with your UVs and weights intact.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
 rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
-delta layer.
+delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 94 headless
-checks plus 8 GUI checks, green on Blender 5.2.0.
+layouts — including a layout *drawn from nothing* on a sphere. 108 headless
+checks plus 8 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
+across spheres, icospheres, cylinders, cones and tori at three densities each
+resolves every patch.
 
-Not written yet: data transfer on Apply (UVs, weights, shape keys), and every
-suggestion lane.
+Not written yet: the suggestion lanes.
 
 A patch NX Loom cannot quantize, split or fill without going non-manifold is
 dropped and named in the report — never fudged into the mesh.
@@ -113,7 +114,9 @@ dropped and named in the report — never fudged into the mesh.
 5. Need a vertex somewhere the solver would not put it? Move it in Edit Mode
    and hit **Capture Edits**. The edit is stored against the layout, not the
    vertex index — change the density afterwards and it is still there.
-6. **Apply** when you want a plain mesh.
+6. **Apply** when you want a plain mesh. Your reference's UVs, materials,
+   vertex groups, shape keys and creases come across onto the new topology —
+   so you can point this at a rigged, shape-keyed avatar and keep working.
 
 To trace an existing mesh instead of drawing: select edges in Edit Mode and use
 **Layout from Selected Edges**.
