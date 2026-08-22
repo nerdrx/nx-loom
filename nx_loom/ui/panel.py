@@ -54,6 +54,8 @@ class NXLOOM_PT_main(bpy.types.Panel):
         sub = box.column(align=True)
         sub.prop(st, "snap_pixels")
         sub.prop(st, "rebuild_on_draw")
+        box.operator("nxloom.toggle_hole", icon="MESH_CIRCLE")
+        box.prop(st, "fill_background")
 
         box = layout.box()
         box.label(text="Density", icon="MOD_MESHDEFORM")
@@ -98,6 +100,15 @@ class NXLOOM_PT_main(bpy.types.Panel):
             for n in sorted(sides):
                 grid.label(text=f"  {n}-sided")
                 grid.label(text=str(sides[n]))
+
+            n_holes = sum(1 for p in graph.patches.values() if p.fill == "hole")
+            if n_holes:
+                grid.label(text="  holes")
+                grid.label(text=str(n_holes))
+            n_bg = len(obj.get("nx_loom_background", []) or [])
+            if n_bg:
+                grid.label(text="  background")
+                grid.label(text=str(n_bg))
 
             bad = list(obj.get("nx_loom_bad_patches", []) or [])
             if bad:

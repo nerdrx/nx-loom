@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0 — unreleased
+
+Three bugs reported from actually drawing on a model, and the behaviour that
+replaced them.
+
+- **Placing a point crashed.** A node with no arcs yet has no rotation system,
+  and asking for one raised `IndexError` on an empty direction array — so the
+  very first click of a point-first workflow errored. Lone points and dangling
+  arcs are supported states now.
+- **A ring round a limb produced nothing, then covered the hull.** Two separate
+  causes. A smooth closed loop has no junctions and no sharp turns, so it had
+  no corners and every cycle was rejected; such a loop is now cut into four
+  sides at evenly spaced nodes. And a closed loop on a closed surface bounds
+  *two* valid regions — the limb, and the entire rest of the model — so the
+  leftover is detected as **background** and left alone rather than filled.
+  (`fill_background` overrides.)
+- **Marking holes.** Ctrl-Shift-click toggles a patch between filled and a
+  hole, for eye sockets, mouth openings, anywhere geometry should not be. Holes
+  are keyed on the patch's set of arc ids, not its id, so they survive
+  re-discovery and density changes. Faces carry an `nx_loom_patch` attribute so
+  a click can name a patch directly.
+- **Strokes stay on the surface you can see.** A ray through a limb crosses the
+  near wall, the far wall and whatever is behind it; the nearest hit is taken,
+  with a deeper crossing used only when the nearest would tear the stroke.
+  Selecting by shortest total path was tried and is wrong — a flat wall behind
+  the model beats curving round the limb in front of it.
+
+128 headless checks + 8 GUI checks.
+
+
 ## 0.4.0 — unreleased
 
 Apply carries your data over, and three solver robustness fixes found by

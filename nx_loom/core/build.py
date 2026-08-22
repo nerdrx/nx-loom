@@ -14,7 +14,34 @@ from .quantize import quantize
 from .surface import resample
 
 
-def build(graph, target_edge=None, project=None, relax_iters=20):
+BACKGROUND_MIN_RATIO = 6.0
+BACKGROUND_MIN_SHARE = 0.5
+
+
+def background_patches(graph):
+    """Patches that are 'the rest of the model' rather than a region you drew.
+
+    A closed loop drawn around a limb splits a closed surface into two valid
+    regions: the limb, and everything else. Both are real patches, so filling
+    them all sprays geometry over the entire hull. A region that dwarfs every
+    other one was almost certainly not the thing being worked on, so it is left
+    alone and reported instead of filled.
+    """
+    if len(graph.patches) < 2:
+        return set()
+    areas = {pid: graph.patch_area(pid) for pid in graph.patches}
+    values = [a for a in areas.values() if a > 0]
+    if not values:
+        return set()
+    smallest, total = min(values), sum(values)
+    if smallest <= 0 or total <= 0:
+        return set()
+    return {pid for pid, a in areas.items()
+            if a > smallest * BACKGROUND_MIN_RATIO and a > total * BACKGROUND_MIN_SHARE}
+
+
+def build(graph, target_edge=None, project=None, relax_iters=20,
+          fill_background=False):
     """Returns (verts (N,3), quads, provenance, report).
 
     ``provenance[i]`` says where vertex i came from — a node, a point along an
@@ -63,8 +90,17 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
         arc_verts[aid] = ids
 
     quads = []
+    quad_patch = []
     failed = []
+    holes = []
+    background = set() if fill_background else background_patches(graph)
     for pid, patch in graph.patches.items():
+        if patch.fill == "hole":
+            holes.append(pid)
+            continue
+        if pid in background:
+            failed.append((pid, "background"))
+            continue
         if pid in qrep["unsatisfied_patches"]:
             failed.append((pid, "unquantized"))
             continue
@@ -104,6 +140,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
             failed.append((pid, "non-manifold"))
             continue
         quads.extend(patch_quads)
+        quad_patch.extend([pid] * len(patch_quads))
 
     used = {i for q in quads for i in q}
     keep = sorted(used)
@@ -117,6 +154,9 @@ def build(graph, target_edge=None, project=None, relax_iters=20):
         "verts": len(out_verts),
         "quads": len(out_quads),
         "failed_patches": failed,
+        "holes": holes,
+        "background": sorted(background),
+        "quad_patch": quad_patch,
         "dropped_verts": len(verts) - len(out_verts),
         "target_edge": target_edge,
     })

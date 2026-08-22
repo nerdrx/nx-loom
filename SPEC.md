@@ -69,7 +69,9 @@ Patch {
   id:      int
   sides:   [[arc_id, reversed], ...]   # ordered CCW loop of directed arcs
   corners: [node_id, ...]              # one per side, side i runs corners[i] -> corners[i+1]
-  fill:    "coons" | "field" | "hold"  # "hold" = user froze this patch's geometry
+  fill:    "coons" | "field" | "hole" | "hold"
+                                       # "hole" = deliberately not filled
+                                       # "hold" = user froze this patch's geometry
 }
 ```
 
@@ -81,6 +83,26 @@ is free in space — that is the from-scratch modeling path.
 
 **Sides are chains.** A patch side may span several arcs. Everything in the
 solver works on *side sums*, never on single arcs.
+
+**Patch ids are not identity.** Patches are re-derived on every edit, so
+anything stored against a patch — a hole mark, a freeze — is keyed on its
+sorted set of arc ids (`Patch.arc_key`), held in `settings["holes"]` and
+re-applied after discovery.
+
+**A cornerless loop is still a region. [frozen]** A ring drawn round a limb has
+no junctions and no sharp turns, so it has no natural corners at all. Refusing
+it means the most obvious first stroke anyone draws produces nothing, so a
+cycle with fewer than three corners is cut into four sides at evenly spaced
+nodes and filled as a quad patch.
+
+**Not every discovered region is wanted. [frozen]** A closed loop on a closed
+surface produces *two* valid regions: the part you drew round, and the entire
+rest of the model. Both are real patches, and filling both sprays geometry over
+the whole hull. A region that is more than `6x` the smallest and more than half
+the total area is treated as *background*: left alone, reported, never filled
+unless `fill_background` is set. This is a heuristic and it is allowed to be —
+being wrong here costs one checkbox, while filling the hull costs the artist
+their work.
 
 ---
 
@@ -294,11 +316,21 @@ Blender binding is displaced:
 | Ctrl-click | erase the arc under the cursor, or dissolve a valence-2 node |
 | Shift-drag | move the node under the cursor along the surface |
 | Alt-click | give the arc under the cursor the current arc type |
+| Ctrl-Shift-click | toggle a patch between filled and a hole |
 | Esc / RMB | end the chain; again to leave the tool |
 
 Straight segments are traced by **interpolating rays, not world positions** —
 every sample is re-cast at the surface, so a segment drawn across a bulge wraps
-over it instead of tunnelling through. Snapping is defined in *pixels* and
+over it instead of tunnelling through. A ray crossing a limb hits the near
+wall, the far wall and whatever is behind, so the **nearest** hit is taken —
+you draw on what you can see — and a deeper crossing is used only when the
+nearest one would tear the stroke. Choosing by shortest total path instead is
+wrong: a flat wall behind the model beats curving round the limb in front of
+it, and the stroke jumps to the far surface.
+
+A node with no arcs is a **legitimate state**, not an error. Placing points
+before connecting them is how you lay out corners first, and a node with no
+arcs simply has no rotation system. Snapping is defined in *pixels* and
 converted to world units per click, so it feels identical zoomed into an ear or
 looking at a whole body. Ending a stroke on an existing arc splits it, which is
 what makes a T-junction something you draw rather than plan for.

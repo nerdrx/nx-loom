@@ -69,6 +69,14 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "the surface occlude it",
         default=True,
     )
+    fill_background: BoolProperty(
+        name="Fill Background Region",
+        description="Fill the leftover region too. A loop drawn around a limb "
+                    "splits a closed mesh into the limb and everything else; "
+                    "by default that leftover is left alone instead of being "
+                    "covered in geometry",
+        default=False,
+    )
     transfer_data: BoolProperty(
         name="Transfer Data on Apply",
         description="Carry UVs, materials, vertex groups, shape keys, creases "

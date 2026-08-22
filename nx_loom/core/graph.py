@@ -79,6 +79,11 @@ class Patch:
     def arc_sides(self):
         return [[arc for arc, _ in side] for side in self.sides]
 
+    def arc_key(self):
+        """Identity that survives re-discovery. Patch ids do not: patches are
+        re-derived on every edit, so a hole marked by id would wander."""
+        return tuple(sorted({arc for side in self.sides for arc, _ in side}))
+
     def to_dict(self):
         return {"id": self.id,
                 "sides": [[[int(a), bool(r)] for a, r in s] for s in self.sides],
@@ -147,6 +152,52 @@ class LayoutGraph:
             a.path[0] = self.nodes[a.a].co
             a.path[-1] = self.nodes[a.b].co
 
+    def patch_boundary(self, pid):
+        """Ordered boundary points of a patch, as one closed polyline."""
+        patch = self.patches[pid]
+        pts = []
+        for side in patch.sides:
+            for aid, reversed_ in side:
+                arc = self.arcs.get(aid)
+                if arc is None:
+                    continue
+                path = np.asarray(arc.path, dtype=float)
+                if reversed_:
+                    path = path[::-1]
+                pts.extend(path[:-1] if len(path) > 1 else path)
+        return np.asarray(pts, dtype=float) if pts else np.zeros((0, 3))
+
+    def patch_area(self, pid):
+        """Magnitude of the boundary's vector area — a size, not a true area,
+        but comparable between patches, which is all it is used for."""
+        pts = self.patch_boundary(pid)
+        if len(pts) < 3:
+            return 0.0
+        c = pts.mean(axis=0)
+        a = np.cross(pts - c, np.roll(pts, -1, axis=0) - c).sum(axis=0) * 0.5
+        return float(np.linalg.norm(a))
+
+    def mark_holes(self):
+        """Re-apply stored hole marks to freshly discovered patches."""
+        stored = {tuple(k) for k in self.settings.get("holes", [])}
+        n = 0
+        for patch in self.patches.values():
+            if patch.arc_key() in stored:
+                patch.fill = "hole"
+                n += 1
+        return n
+
+    def set_hole(self, pid, is_hole):
+        holes = {tuple(k) for k in self.settings.get("holes", [])}
+        key = self.patches[pid].arc_key()
+        if is_hole:
+            holes.add(key)
+            self.patches[pid].fill = "hole"
+        else:
+            holes.discard(key)
+            self.patches[pid].fill = "coons"
+        self.settings["holes"] = [list(k) for k in sorted(holes)]
+
     # -- patch discovery -------------------------------------------------
 
     def discover_patches(self, normal_at=None, corner_angle=50.0):
@@ -213,9 +264,23 @@ class LayoutGraph:
                 if val.get(frm, 0) != 2
                 or self._turn_cos(cycle, i) < cos_lim
             ]
-            if not corner_at:
-                rejected["no_corners"] += 1
-                continue
+            if len(corner_at) < 3:
+                # A smooth closed loop — a ring drawn round a limb, the rim of
+                # a cap — has no junctions and no sharp turns, so it has no
+                # natural corners at all. It still bounds a perfectly good
+                # region, and refusing it means the most obvious first stroke
+                # anyone draws produces nothing. Cut it into four sides at
+                # evenly spaced nodes and fill it as a quad patch.
+                want = min(4, len(cycle))
+                if want < 3:
+                    rejected["no_corners"] += 1
+                    continue
+                spaced = [round(k * len(cycle) / want) % len(cycle)
+                          for k in range(want)]
+                corner_at = sorted(set(spaced))
+                if len(corner_at) < 3:
+                    rejected["no_corners"] += 1
+                    continue
             sides, corners = [], []
             for k, start_i in enumerate(corner_at):
                 stop_i = corner_at[(k + 1) % len(corner_at)]
@@ -235,7 +300,10 @@ class LayoutGraph:
             self.patches[pid] = Patch(pid, sides, corners)
             pid += 1
 
-        return {"patches": len(self.patches), "cycles": len(cycles), "rejected": rejected}
+        rep = {"patches": len(self.patches), "cycles": len(cycles),
+               "rejected": rejected}
+        rep["holes"] = self.mark_holes()
+        return rep
 
     def _turn_cos(self, cycle, i):
         """cos of the angle between arriving and leaving directions at cycle[i]."""
@@ -267,6 +335,13 @@ class LayoutGraph:
         the tangent plane) but fails at a cone's base, where the slant arc has
         a radial component and the three directions span all of 3-space.
         """
+        # A node with no arcs is a legitimate state, not an error: placing a
+        # point before connecting anything is how you lay out corners first.
+        # It has no rotation system, and asking for one used to crash on an
+        # empty direction array.
+        if not incident:
+            return []
+
         p = self.nodes[nid].co
         dirs = []
         for aid, reversed_ in incident:
@@ -285,11 +360,14 @@ class LayoutGraph:
                 cand = ref / ln
                 # unusable if every arc runs along it (nothing left to sort by)
                 flat = D - np.outer(D @ cand, cand)
-                if np.min(np.linalg.norm(flat, axis=1)) > 1e-6:
+                if len(flat) and np.min(np.linalg.norm(flat, axis=1)) > 1e-6:
                     nrm = cand
         if nrm is None:
-            if len(D) >= 2:
-                _, _, vt = np.linalg.svd(D - D.mean(axis=0) if len(D) > 2 else D)
+            if len(D) > 2:
+                _, _, vt = np.linalg.svd(D - D.mean(axis=0))
+                nrm = vt[-1]
+            elif len(D) == 2:
+                _, _, vt = np.linalg.svd(D)
                 nrm = vt[-1]
             else:
                 nrm = np.array([0.0, 0.0, 1.0])
@@ -297,7 +375,8 @@ class LayoutGraph:
                 nrm = np.array([0.0, 0.0, 1.0])
             nrm = nrm / np.linalg.norm(nrm)
 
-        t = D[0] - nrm * (D[0] @ nrm)
+        base = D[0] if len(D) else np.array([1.0, 0.0, 0.0])
+        t = base - nrm * (base @ nrm)
         if np.linalg.norm(t) < 1e-9:
             t = np.array([1.0, 0.0, 0.0])
             t = t - nrm * (t @ nrm)

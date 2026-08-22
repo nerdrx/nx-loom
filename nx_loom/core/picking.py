@@ -29,23 +29,81 @@ def ray_surface(surface, origin, direction):
     return p if np.all(np.isfinite(p)) else None
 
 
-def trace_rays(surface, rays, min_step=0.0):
+def ray_hits(surface, origin, direction, max_hits=6):
+    """Every surface crossing along a ray, near to far.
+
+    One ray through a limb hits the near wall, the far wall, and whatever is
+    behind it. Taking the first hit is not enough on its own, but having all of
+    them is what lets :func:`trace_rays` pick the sheet the stroke is actually
+    on.
+    """
+    if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
+        return []
+    d = Vector(tuple(direction)).normalized()
+    span = float(np.linalg.norm(surface.verts.max(axis=0) - surface.verts.min(axis=0))) \
+        if len(surface.verts) else 1.0
+    eps = max(span * 1e-6, 1e-9)
+    cur = Vector(tuple(origin))
+    out = []
+    for _ in range(max_hits):
+        loc, _, _, _ = surface.tree.ray_cast(cur, d)
+        if loc is None:
+            break
+        p = np.array(loc[:], dtype=float)
+        if not np.all(np.isfinite(p)):
+            break
+        out.append(p)
+        cur = loc + d * eps
+    return out
+
+
+def trace_rays(surface, rays, min_step=0.0, anchor=None, max_hits=6):
     """Surface path from a sequence of (origin, direction) rays.
 
-    Rays that miss the surface are dropped rather than guessed at — a stroke
-    that runs off the silhouette should stop at the silhouette, not jump to
-    whatever happens to be behind it.
+    Takes the nearest hit — you are drawing on what you can see — and falls
+    back to a deeper crossing only when the nearest one would tear the stroke.
+    Choosing purely by shortest total path is wrong: a flat wall behind the
+    model beats curving around the limb in front of it, and the stroke jumps
+    to the far surface.
+
+    Rays that miss entirely are dropped rather than guessed at — a stroke that
+    runs off the silhouette should stop there.
     """
-    pts = []
+    cands = []
     for origin, direction in rays:
-        if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
-            continue
-        p = ray_surface(surface, origin, direction)
-        if p is None:
-            continue
+        hits = ray_hits(surface, origin, direction, max_hits=max_hits)
+        if hits:
+            cands.append(hits)
+    if not cands:
+        return np.zeros((0, 3))
+
+    nearest = [h[0] for h in cands]
+    steps = [float(np.linalg.norm(nearest[i] - nearest[i - 1]))
+             for i in range(1, len(nearest))]
+    span = float(np.linalg.norm(surface.verts.max(axis=0) - surface.verts.min(axis=0))) \
+        if len(surface.verts) else 1.0
+    if steps:
+        median = float(np.median(steps))
+        max_jump = max(median * 5.0, span * 0.02)
+    else:
+        max_jump = span
+
+    pts = []
+    prev = np.asarray(anchor, dtype=float) if anchor is not None else None
+    for hits in cands:
+        if prev is None:
+            p = hits[0]
+        else:
+            p = hits[0]
+            if float(np.linalg.norm(p - prev)) > max_jump:
+                p = min(hits, key=lambda h: float(np.linalg.norm(h - prev)))
+        prev = p
         if min_step > 0.0 and pts and np.linalg.norm(p - pts[-1]) < min_step:
             continue
         pts.append(p)
+
+    if len(pts) < 2 and len(cands) >= 2:
+        pts = [cands[0][0], cands[-1][0]]
     return np.array(pts, dtype=float) if pts else np.zeros((0, 3))
 
 

@@ -74,14 +74,14 @@ solve.
 
 ## Status
 
-**v0.4.0 — draw it, edit it, apply it with your UVs and weights intact.**
+**v0.5.0 — draw it, edit it, apply it with your UVs and weights intact.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
 rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 108 headless
+layouts — including a layout *drawn from nothing* on a sphere. 128 headless
 checks plus 8 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
@@ -105,10 +105,17 @@ dropped and named in the report — never fudged into the mesh.
    | Ctrl-click | erase an arc / dissolve a node |
    | Shift-drag | move a node |
    | Alt-click | retype an arc (flow / crease / boundary / seam) |
+   | Ctrl-Shift-click | toggle a patch between filled and a hole |
    | Esc, RMB | end the chain; again to leave the tool |
 
    Strokes snap to existing nodes, and ending one on an existing arc splits it
-   into a T-junction. Enclose an area and it becomes a patch, filled at once.
+   into a T-junction. Enclose an area and it becomes a patch, filled at once —
+   including a plain closed ring round a limb, which needs no corners. Mark
+   eye sockets and mouth openings as **holes** and they stay empty.
+
+   Drawing a loop on a closed mesh bounds two regions: the bit you drew round,
+   and everything else. The leftover is detected and left alone rather than
+   covered in geometry (there's a checkbox if you did want it filled).
 4. Adjust **Density**. Any patch the solver refuses is drawn **red** in the
    viewport and counted in the panel, so a problem is visible while you draw.
 5. Need a vertex somewhere the solver would not put it? Move it in Edit Mode

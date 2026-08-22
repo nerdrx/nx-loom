@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import bpy
 import numpy as np
+from mathutils import Vector
 
 from ..core.authoring import (add_arc, decimate, dissolve_node, move_node,
                               nearest_node, nearest_on_arc, remove_arc,
@@ -89,7 +90,9 @@ def refresh(obj, graph, context, rebuild=True):
         rep = rebuild_object(obj, context)
         if rep:
             bad = sorted(set(rep["unsatisfied_patches"])
-                         | {pid for pid, _ in rep["failed_patches"]})
+                         | {pid for pid, why in rep["failed_patches"]
+                            if why != "background"})
+            obj["nx_loom_background"] = list(rep.get("background", []))
     obj["nx_loom_bad_patches"] = bad
     overlay.mark_dirty()
     return bad
@@ -175,7 +178,6 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
     def _segment_path(self, context, from_co, to_ray):
         """Trace a straight-on-screen segment from a world point to a ray."""
         from bpy_extras import view3d_utils
-        from mathutils import Vector
         region, rv3d = context.region, context.space_data.region_3d
         p2d = view3d_utils.location_3d_to_region_2d(region, rv3d, Vector(tuple(from_co)))
         if p2d is None:
@@ -297,7 +299,6 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
 
     def _ray_at(self, context, co):
         from bpy_extras import view3d_utils
-        from mathutils import Vector
         region, rv3d = context.region, context.space_data.region_3d
         p2d = view3d_utils.location_3d_to_region_2d(region, rv3d, Vector(tuple(co)))
         if p2d is None:
@@ -433,8 +434,68 @@ class NXLOOM_OT_set_arc_type(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NXLOOM_OT_toggle_hole(bpy.types.Operator):
+    """Mark the patch under the cursor as a hole, or fill it again"""
+
+    bl_idname = "nxloom.toggle_hole"
+    bl_label = "Toggle Hole"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        if graph is None or not graph.patches:
+            return {"CANCELLED"}
+
+        origin, direction = _mouse_ray(context, event)
+        mw_inv = obj.matrix_world.inverted()
+        lo = mw_inv @ Vector(tuple(origin))
+        ld = (mw_inv.to_3x3() @ Vector(tuple(direction))).normalized()
+
+        pid = None
+        hit, _, _, face = obj.ray_cast(lo, ld)
+        if hit and face >= 0:
+            attr = obj.data.attributes.get("nx_loom_patch")
+            if attr is not None and face < len(attr.data):
+                pid = int(attr.data[face].value)
+
+        if pid is None:
+            # No generated face under the cursor: either an existing hole or the
+            # background region. Pick whichever unfilled patch we are pointing
+            # closest to, so a hole can be clicked back on.
+            surface = _surface_of(graph, context)
+            point = ray_surface(surface, origin, direction) if surface else None
+            if point is None:
+                self.report({"WARNING"}, "Nothing under the cursor")
+                return {"CANCELLED"}
+            best = None
+            for cand in graph.patches:
+                pts = graph.patch_boundary(cand)
+                if not len(pts):
+                    continue
+                d = float(np.linalg.norm(pts.mean(axis=0) - point))
+                if best is None or d < best[1]:
+                    best = (cand, d)
+            if best is None:
+                return {"CANCELLED"}
+            pid = best[0]
+
+        now_hole = graph.patches[pid].fill != "hole"
+        graph.set_hole(pid, now_hole)
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"},
+                    f"Patch {pid} is {'a hole' if now_hole else 'filled'}")
+        return {"FINISHED"}
+
+
 _CLASSES = (
     NXLOOM_OT_draw_arc,
+    NXLOOM_OT_toggle_hole,
     NXLOOM_OT_erase,
     NXLOOM_OT_move_node,
     NXLOOM_OT_set_arc_type,

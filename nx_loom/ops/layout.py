@@ -59,7 +59,8 @@ def rebuild_object(obj, context, report_fn=None):
     project = surface.project if (surface and st.reproject) else None
 
     verts, quads, prov, report = build(
-        graph, target_edge=st.target_edge, project=project, relax_iters=st.relax_iters
+        graph, target_edge=st.target_edge, project=project,
+        relax_iters=st.relax_iters, fill_background=st.fill_background,
     )
 
     deltas = delta_mod.load(obj)
@@ -76,6 +77,18 @@ def rebuild_object(obj, context, report_fn=None):
     mesh.clear_geometry()
     mesh.from_pydata(local, [], quads)
     mesh.update()
+
+    # Stamp which patch each face came from, so clicking a face can name a
+    # patch without re-deriving anything.
+    qp = report.get("quad_patch") or []
+    if qp and len(qp) == len(mesh.polygons):
+        attr = mesh.attributes.get("nx_loom_patch")
+        if attr is None or attr.domain != "FACE" or attr.data_type != "INT":
+            if attr is not None:
+                mesh.attributes.remove(attr)
+            attr = mesh.attributes.new("nx_loom_patch", "INT", "FACE")
+        attr.data.foreach_set("value", qp)
+
     set_graph(obj, graph)
     if report_fn:
         report_fn(report)
@@ -202,7 +215,8 @@ def clean_build(obj, context):
         graph.refresh_positions(surface)
     project = surface.project if (surface and st.reproject) else None
     verts, _, prov, _ = build(graph, target_edge=st.target_edge, project=project,
-                              relax_iters=st.relax_iters)
+                              relax_iters=st.relax_iters,
+                              fill_background=st.fill_background)
     return verts, prov, surface
 
 
