@@ -169,3 +169,55 @@ def ring_segments(loop, k=4, samples_per_arc=8, start_at=None):
         pts[-1] = nodes[(j + 1) % k]
         paths.append(np.asarray(pts, dtype=float))
     return nodes, paths
+
+
+def loop_perimeter(pts):
+    pts = np.asarray(pts, dtype=float)
+    return float(np.linalg.norm(
+        np.diff(np.vstack([pts, pts[:1]]), axis=0), axis=1).sum())
+
+
+def pair_rings(a_pts, b_pts):
+    """Match the nodes of two rings one-to-one by proximity.
+
+    Chain direction out of a cross-section is arbitrary, so index order cannot
+    be trusted — ring B may wind the opposite way to ring A. Nearest-neighbour
+    pairing is unambiguous for rings stacked along a limb, and demanding that
+    it comes out bijective is the guard: if two of B's nodes want the same
+    node of A, these are not corresponding rings and bridging them would fold.
+    Returns a list of (i, j) index pairs, or None.
+    """
+    a = np.asarray(a_pts, dtype=float)
+    b = np.asarray(b_pts, dtype=float)
+    if len(a) != len(b) or len(a) == 0:
+        return None
+    pairs = []
+    taken = set()
+    for j, p in enumerate(b):
+        d = np.linalg.norm(a - p, axis=1)
+        i = int(np.argmin(d))
+        if i in taken:
+            return None
+        taken.add(i)
+        pairs.append((i, j))
+    return pairs
+
+
+def bridgeable(a_pts, b_pts, pairs, max_span_ratio=1.25):
+    """Whether two paired rings are plausibly the same tube.
+
+    The trap is two rings on *different* limbs — ring the left leg, ring the
+    right, and an eager bridge would span the gap between them. Rings farther
+    apart than their own circumference are not a tube segment; that single
+    check keeps cross-limb bridges out while leaving any sane ladder spacing
+    alone.
+    """
+    if not pairs:
+        return False
+    a = np.asarray(a_pts, dtype=float)
+    b = np.asarray(b_pts, dtype=float)
+    span = float(np.mean([np.linalg.norm(a[i] - b[j]) for i, j in pairs]))
+    perim = min(loop_perimeter(a), loop_perimeter(b))
+    if perim <= 0:
+        return False
+    return span <= perim * max_span_ratio

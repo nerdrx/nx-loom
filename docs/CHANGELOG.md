@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.13.0 — unreleased
+
+**Ring bridging: a tube of clean quads in two swipes.** After a ring cut, the
+next ring connects itself to the previous one with four straight wall arcs —
+swipe down a limb and the ladder builds as you go. On by default (`Bridge
+Rings`); wall arcs are straight-rail, so dragging a ring node re-lays them.
+
+Two guards keep it honest:
+
+- Node pairing must come out **bijective by proximity** — chain direction from
+  a cross-section is arbitrary, so index order cannot be trusted.
+- Rings farther apart than their own circumference are not a tube segment, so
+  **ringing the left leg and then the right never bridges the gap** (measured:
+  refused, 8 arcs, no walls).
+
+**Symmetry stops duplicating roughly-mirrored geometry.** Two fixes found by
+ringing both legs of a two-leg body with symmetry on:
+
+- Twin adoption matched hand-drawn counterparts only within the *seam*
+  tolerance (2 mm); real counterparts differ by centimetres, so sync mirrored
+  fresh arcs **on top of the artist's own**. Adoption now uses a tolerance
+  proportional to the arc, with a midpoint check.
+- When no arc-to-arc correspondence exists at all (two rings anchored on
+  opposite sides of their limbs are rotated half a ring apart), the would-be
+  mirror is checked against existing authored geometry and **skipped when it
+  already lies along it** — counts stay untied, which is pinnable, but nothing
+  is doubled.
+
+295 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.12.0 — unreleased
 
 **Ring Cut: swipe across a limb to ring it.** Ctrl+Alt drag across a leg, an

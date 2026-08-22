@@ -652,7 +652,34 @@ class NXLOOM_OT_unpin_arc(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def commit_ring(graph, surface, ray0, ray1, arc_type="flow", k=4):
+def bridge_rings(graph, surface, ring_a, ring_b, arc_type="flow"):
+    """Connect two rings' corresponding nodes with straight wall arcs.
+
+    Straight-rail, like a click-click segment: a wall arc has no shape of its
+    own, so a moved ring node re-lays it end to end. Returns the arc ids, or
+    None when the rings do not pair or are too far apart to be one tube —
+    ringing the left leg and then the right must never span the gap.
+    """
+    from ..core.contour import bridgeable, pair_rings
+
+    a_pts = [np.asarray(graph.nodes[n].co, dtype=float) for n in ring_a]
+    b_pts = [np.asarray(graph.nodes[n].co, dtype=float) for n in ring_b]
+    pairs = pair_rings(a_pts, b_pts)
+    if not bridgeable(a_pts, b_pts, pairs):
+        return None
+    made = []
+    for i, j in pairs:
+        t = np.linspace(0.0, 1.0, 10)[:, None]
+        path = a_pts[i] * (1.0 - t) + b_pts[j] * t
+        if surface is not None:
+            path[1:-1] = surface.project(path[1:-1])
+        made.append(add_arc(graph, ring_a[i], ring_b[j], path, surface,
+                            type=arc_type, rail="straight"))
+    return made
+
+
+def commit_ring(graph, surface, ray0, ray1, arc_type="flow", k=4,
+                bridge_to=None):
     """Turn a swipe across a limb into a closed ring of k arcs.
 
     The stroke's two surface hits and the view direction span the cutting
@@ -694,7 +721,13 @@ def commit_ring(graph, surface, ray0, ray1, arc_type="flow", k=4):
         aid = add_arc(graph, node_ids[j], node_ids[(j + 1) % k], paths[j],
                       surface, type=arc_type, rail="surface")
         arc_ids.append(aid)
-    return node_ids, arc_ids
+
+    bridged = None
+    if bridge_to and all(n in graph.nodes for n in bridge_to) \
+            and len(bridge_to) == k:
+        bridged = bridge_rings(graph, surface, list(bridge_to), node_ids,
+                               arc_type=arc_type)
+    return node_ids, arc_ids, bridged
 
 
 class NXLOOM_OT_ring_cut(bpy.types.Operator):
@@ -745,19 +778,31 @@ class NXLOOM_OT_ring_cut(bpy.types.Operator):
 
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self._cleanup(context)
+            st = context.scene.nx_loom
+            obj = active_object(context)
+            prev = list(obj.get("nx_loom_last_ring", []) or []) \
+                if st.bridge_rings else None
             res = commit_ring(self.graph, self.surface, self.ray0,
                               _mouse_ray(context, event),
-                              arc_type=context.scene.nx_loom.arc_type)
+                              arc_type=st.arc_type, bridge_to=prev)
             if res is None:
                 self.report({"WARNING"},
                             "No closed loop under the swipe — cross the limb "
                             "in one stroke")
                 return {"CANCELLED"}
-            obj = active_object(context)
-            refresh(obj, self.graph, context,
-                    rebuild=context.scene.nx_loom.rebuild_on_draw)
+            node_ids, arc_ids, bridged = res
+            obj["nx_loom_last_ring"] = [int(n) for n in node_ids]
+            refresh(obj, self.graph, context, rebuild=st.rebuild_on_draw)
             bpy.ops.ed.undo_push(message="NX Loom: ring cut")
-            self.report({"INFO"}, f"Ring of {len(res[1])} arcs")
+            if bridged:
+                self.report({"INFO"},
+                            f"Ring bridged to the previous one — "
+                            f"{len(bridged)} wall arcs")
+            elif prev:
+                self.report({"INFO"},
+                            "Ring of 4 arcs (previous ring too far to bridge)")
+            else:
+                self.report({"INFO"}, "Ring of 4 arcs")
             return {"FINISHED"}
 
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":

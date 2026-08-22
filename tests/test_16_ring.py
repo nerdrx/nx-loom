@@ -109,7 +109,8 @@ def run():
                 f"{len(graph.nodes)}n {len(graph.arcs)}a"))
     if res is None:
         return out
-    P = np.array([graph.nodes[n].co for n in res[0]])
+    ring1, _, _ = res
+    P = np.array([graph.nodes[n].co for n in ring1])
     out.append(("the ring wraps the leg, not the torso",
                 float(np.linalg.norm(P[:, :2], axis=1).max()) < 0.35
                 and float(np.abs(P[:, 2] + 0.9).max()) < 0.1,
@@ -119,7 +120,7 @@ def run():
     # two rings correspond and bridging them by click is four obvious segments
     res2 = commit_ring(graph, surf, *_swipe(-0.4))
     if res2 is not None:
-        a0 = graph.nodes[res[0][0]].co
+        a0 = graph.nodes[ring1[0]].co
         b0 = graph.nodes[res2[0][0]].co
         lateral = float(np.linalg.norm((a0 - b0)[:2]))
         out.append(("successive rings get corresponding nodes",
@@ -138,12 +139,89 @@ def run():
                 F > 0 and nm == 0 and nq == 0 and span < 1.2,
                 f"{F} faces spanning {span:.2f} of a 3.4-tall body"))
 
-    # symmetry: a ring on one side is mirrored like anything else authored
-    st.symmetry_axis = "Y"
-    rep2 = rebuild_object(obj, bpy.context)
-    g2 = get_graph(obj)
-    mirrored = sum(1 for a in g2.arcs.values()
-                   if a.mirror_of is not None or a.twin is not None)
-    out.append(("rings take part in symmetry like drawn arcs",
-                mirrored >= 0 and rep2 is not None, f"{mirrored} paired"))
+    # -- bridging: two swipes make a tube
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    body = _body()
+    st = bpy.context.scene.nx_loom
+    st.target_edge = 0.25
+    st.relax_iters = 2
+    st.symmetry_axis = "NONE"
+    st.fill_background = False
+    bpy.ops.nxloom.new_layout()
+    obj = bpy.context.active_object
+    surf = Surface(body, bpy.context.evaluated_depsgraph_get())
+    graph = get_graph(obj)
+
+    ring_a, _, _ = commit_ring(graph, surf, *_swipe(-0.9))
+    resb = commit_ring(graph, surf, *_swipe(-0.4), bridge_to=ring_a)
+    out.append(("the second swipe bridges to the first",
+                resb is not None and resb[2] is not None
+                and len(resb[2]) == 4,
+                f"{0 if not resb or not resb[2] else len(resb[2])} wall arcs"))
+    out.append(("a bridged pair is 8 nodes, 12 arcs",
+                len(graph.nodes) == 8 and len(graph.arcs) == 12,
+                f"{len(graph.nodes)}n {len(graph.arcs)}a"))
+    walls = [a for a in graph.arcs.values() if a.rail == "straight"]
+    out.append(("wall arcs are straight-rail, so ring nodes re-lay them",
+                len(walls) == 4, str(len(walls))))
+
+    set_graph(obj, graph)
+    rebuild_object(obj, bpy.context)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    nm = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+    nq = sum(1 for f in bm.faces if len(f.verts) != 4)
+    F = len(bm.faces)
+    bm.free()
+    band = obj.dimensions.z if F else 9.0
+    out.append(("the tube builds as a clean quad band",
+                F >= 8 and nm == 0 and nq == 0 and band < 0.8,
+                f"{F} faces, band height {band:.2f}"))
+
+    # ringing the OTHER leg must not bridge across the gap
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=0.25, depth=2.4,
+                                        location=(-0.6, 0, 0))
+    left = bpy.context.active_object
+    bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=0.25, depth=2.4,
+                                        location=(0.6, 0, 0))
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.active_object.select_set(True)
+    left.select_set(True)
+    bpy.context.view_layer.objects.active = left
+    bpy.ops.object.join()
+    # st is stale after the factory reset above — a write to it lands on the
+    # freed scene and silently does nothing. Re-fetch from the live scene.
+    st = bpy.context.scene.nx_loom
+    st.target_edge = 0.25
+    st.relax_iters = 2
+    st.symmetry_axis = "NONE"
+    st.fill_background = False
+    bpy.ops.nxloom.new_layout()
+    obj2 = bpy.context.active_object
+    surf2 = Surface(left, bpy.context.evaluated_depsgraph_get())
+    g2 = get_graph(obj2)
+    swipe_l = ((np.array([-0.75, -6.0, 0.0]), np.array([0.0, 1.0, 0.0])),
+               (np.array([-0.45, -6.0, 0.0]), np.array([0.0, 1.0, 0.0])))
+    swipe_r = ((np.array([0.45, -6.0, 0.0]), np.array([0.0, 1.0, 0.0])),
+               (np.array([0.75, -6.0, 0.0]), np.array([0.0, 1.0, 0.0])))
+    rl, _, _ = commit_ring(g2, surf2, *swipe_l)
+    rr = commit_ring(g2, surf2, *swipe_r, bridge_to=rl)
+    out.append(("ringing the other leg refuses to bridge the gap",
+                rr is not None and rr[2] is None and len(g2.arcs) == 8,
+                f"bridged={rr[2] if rr else '?'} arcs={len(g2.arcs)}"))
+
+    # symmetry: the two legs mirror across X, so their rings should pair as
+    # twins rather than being duplicated
+    set_graph(obj2, g2)
+    st.symmetry_axis = "X"
+    rep2 = rebuild_object(obj2, bpy.context)
+    g3 = get_graph(obj2)
+    # The two rings are anchored on opposite sides of their limbs, so their
+    # arcs are rotated half a ring apart — twinning has no correspondence to
+    # work with. What matters is that sync must NOT duplicate geometry on top
+    # of what was drawn.
+    out.append(("roughly mirrored hand-drawn rings are not duplicated",
+                rep2 is not None and len(g3.arcs) == 8,
+                f"{len(g3.arcs)} arcs (duplication would be 16)"))
     return out

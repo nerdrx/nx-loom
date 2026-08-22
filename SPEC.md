@@ -472,6 +472,18 @@ The ring is emitted as four even arcs between four nodes (the shape discovery
 already gives cornerless loops), with the first node anchored under the stroke
 start so successive rings correspond.
 
+**Ring bridging** (`bridge_rings` in contour + `ops.draw.bridge_rings`): each
+new ring auto-connects to the previous one with four straight-rail wall arcs.
+Pairing is nearest-neighbour and must be bijective (chain winding is
+arbitrary); rings farther apart than their own circumference are refused, which
+is what keeps a ring on each leg from bridging the gap between them.
+
+**Sync must never duplicate hand-drawn geometry.** Twin adoption uses a
+tolerance proportional to the arc (seam tolerance is for the seam); and when no
+arc-to-arc correspondence exists — counterpart rings anchored on opposite sides
+decompose into arcs rotated half a ring apart — a would-be mirror whose path
+already lies along authored arcs is skipped rather than doubled.
+
 A node with no arcs is a **legitimate state**, not an error. Placing points
 before connecting them is how you lay out corners first, and a node with no
 arcs simply has no rotation system. Snapping is defined in *pixels* and

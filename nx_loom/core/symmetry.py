@@ -93,12 +93,45 @@ def sync(graph, axis, tol=1e-4, surface=None):
                 break
 
     # Pass 2: mirror whatever still has no counterpart, from either side.
+    def _covered(m_path, skip_id):
+        """Does this would-be mirror already lie along authored geometry?
+
+        Twinning needs arc-to-arc correspondence, and two rings anchored on
+        opposite sides of their limbs decompose into arcs rotated half a ring
+        apart — no correspondence exists. The one outcome that must never
+        happen is doubling geometry on top of what the artist drew, so a
+        mirror whose path already hugs existing authored arcs is skipped
+        outright (its counts stay untied, which the artist can pin).
+        """
+        probes = m_path[:: max(len(m_path) // 5, 1)]
+        reach = max(tol, 0.3 * float(np.linalg.norm(
+            np.diff(m_path, axis=0), axis=1).sum()))
+        for probe in probes:
+            best = None
+            for other in off_plane:
+                if other.id == skip_id:
+                    continue
+                path = np.asarray(other.path, dtype=float)
+                a, ab = path[:-1], path[1:] - path[:-1]
+                denom = np.einsum("ij,ij->i", ab, ab)
+                denom[denom < 1e-20] = 1e-20
+                t = np.clip(np.einsum("ij,ij->i", probe - a, ab) / denom, 0, 1)
+                d = float(np.linalg.norm(a + ab * t[:, None] - probe, axis=1).min())
+                best = d if best is None or d < best else best
+            if best is None or best > reach:
+                return False
+        return True
+
     index = _position_index(graph)
     made = 0
+    covered = 0
     for arc in [a for a in off_plane if a.mirror_of is None and a.twin is None]:
         m_path = np.array(arc.path, dtype=float)
         m_path[:, ax] *= -1.0
         if _find_arc(graph, m_path[0], m_path[-1], tol):
+            continue
+        if _covered(m_path, arc.id):
+            covered += 1
             continue
         a = _node_at(graph, m_path[0], index, tol, surface, arc.a)
         b = _node_at(graph, m_path[-1], index, tol, surface, arc.b)
@@ -110,6 +143,7 @@ def sync(graph, axis, tol=1e-4, surface=None):
 
     rep["mirrored"] = made
     rep["adopted"] = adopted
+    rep["covered"] = covered
     return rep
 
 

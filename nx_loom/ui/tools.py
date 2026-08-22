@@ -58,6 +58,7 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         row = layout.row(align=True)
         row.prop(st, "arc_type", text="")
         row.prop(st, "snap_pixels")
+        row.prop(st, "bridge_rings", text="", icon="MOD_LATTICE")
         row.prop(st, "rebuild_on_draw", text="", icon="FILE_REFRESH")
         row.prop(st, "overlay_xray", text="", icon="XRAY")
 

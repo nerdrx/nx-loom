@@ -96,6 +96,13 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "bends the whole arc; lower values keep the far end put",
         default=1.0, min=0.05, max=1.0,
     )
+    bridge_rings: BoolProperty(
+        name="Bridge Rings",
+        description="After a ring cut, connect it to the previous ring with "
+                    "four wall arcs when the two plausibly sit on the same "
+                    "limb — a tube of clean quads in two swipes",
+        default=True,
+    )
     rebuild_on_draw: BoolProperty(
         name="Rebuild While Drawing",
         description="Regenerate the mesh after each arc. Turn off on heavy "
