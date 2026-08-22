@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.2 — unreleased
+
+**Fixed: pins on half the arcs did nothing.** Locks were read only from the
+arcs that represent their group in the solve. With symmetry on, every mirrored
+or twinned arc is represented by its partner — so a pin on one of those was
+silently dropped and the solve carried on as if you had not asked. That is half
+the arcs on a symmetric layout.
+
+Locks are now collected from every arc and mapped onto its representative. A
+pin on either half is honoured and its partner follows it.
+
+Pinning two halves to *different* counts cannot hold, and is now reported as a
+conflict in the panel rather than one of them quietly winning.
+
+Also: the deferred rebuild no longer swallows exceptions. If it died, the pin
+was stored and nothing re-solved — indistinguishable from the solver ignoring
+you. (Verified separately that the timer does fire and does re-solve.)
+
+266 headless checks + 12 GUI checks.
+
+
 ## 0.10.1 — unreleased
 
 **Type the loop count instead of scrolling to it.** Alt+Shift click an arc to

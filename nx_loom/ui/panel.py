@@ -173,6 +173,13 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
             row = box.row()
             row.label(text=f"{pinned} arc(s) pinned", icon="PINNED")
             row.operator("nxloom.clear_loop_locks", text="", icon="X")
+        n_conf = int(obj.get("nx_loom_lock_conflicts", 0) or 0)
+        if n_conf:
+            col = box.column(align=True)
+            col.alert = True
+            col.label(text=f"{n_conf} pin(s) conflict", icon="ERROR")
+            col.label(text="Mirrored halves pinned to")
+            col.label(text="different counts.")
 
         box = layout.box()
         box.label(text="Ctrl+Alt+Wheel over a patch")

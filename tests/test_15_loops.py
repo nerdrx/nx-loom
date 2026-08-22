@@ -125,6 +125,7 @@ def run():
 
     out += run_patch_density()
     out += run_typed_loops()
+    out += run_symmetric_pins()
     return out
 
 
@@ -261,4 +262,62 @@ def run_typed_loops():
     out.append(("Alt+Shift click selects an arc",
                 len(sel) == 1 and sel[0][1].get("alt") and sel[0][1].get("shift"),
                 str(sel)))
+    return out
+
+
+def run_symmetric_pins():
+    """Pins on mirrored and twinned arcs.
+
+    With symmetry on, half the arcs are not their own representative in the
+    solve. Reading locks off the representatives alone dropped every pin on the
+    other half, so pinning those arcs looked like the solver ignoring you.
+    """
+    out = []
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=3, y_subdivisions=3, size=2.0)
+    st = bpy.context.scene.nx_loom
+    st.target_edge = 0.3
+    st.relax_iters = 0
+    st.reproject = False
+    st.size_mode = "EDGE"
+    st.symmetry_axis = "X"
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.nxloom.layout_from_selection()
+    if bpy.context.active_object.mode == "EDIT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    obj = bpy.context.active_object
+    graph = get_graph(obj)
+
+    paired = [(a, arc.mirror_of if arc.mirror_of is not None else arc.twin)
+              for a, arc in graph.arcs.items()
+              if arc.mirror_of is not None or arc.twin is not None]
+    out.append(("the symmetric layout has paired arcs", len(paired) > 0,
+                f"{len(paired)} paired"))
+    if not paired:
+        return out
+
+    aid, src = paired[0]
+    graph.arcs[aid].n_lock = 9
+    set_graph(obj, graph)
+    rebuild_object(obj, bpy.context)
+    graph = get_graph(obj)
+    out.append(("a pin on a paired arc is honoured", graph.arcs[aid].n == 9,
+                f"arc {aid} = {graph.arcs[aid].n}"))
+    out.append(("and its partner follows it", graph.arcs[src].n == 9,
+                f"partner {src} = {graph.arcs[src].n}"))
+    st2 = _clean(obj)
+    out.append(("the mesh still closes", st2["nm"] == 0 and st2["nonquad"] == 0,
+                str(st2)))
+
+    # pinning both halves to different numbers cannot hold; say so
+    graph = get_graph(obj)
+    graph.arcs[aid].n_lock = 9
+    graph.arcs[src].n_lock = 4
+    set_graph(obj, graph)
+    rep = rebuild_object(obj, bpy.context)
+    out.append(("two halves pinned differently is reported, not ignored",
+                len(rep.get("lock_conflicts", [])) > 0,
+                str(rep.get("lock_conflicts"))))
     return out

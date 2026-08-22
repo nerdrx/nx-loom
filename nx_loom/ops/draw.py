@@ -105,6 +105,7 @@ def refresh(obj, graph, context, rebuild=True):
     if rebuild and graph.patches:
         rep = rebuild_object(obj, context)
         if rep:
+            obj["nx_loom_lock_conflicts"] = len(rep.get("lock_conflicts", []))
             bad = sorted(set(rep["unsatisfied_patches"])
                          | {pid for pid, why in rep["failed_patches"]
                             if why != "background"})
@@ -537,7 +538,10 @@ def _deferred_rebuild():
             refresh(obj, graph, ctx)
             _sync_active_loops(ctx, get_graph(obj), active_arc(obj))
     except Exception:
-        pass
+        # Never silently: if the deferred rebuild dies, the pin is stored and
+        # nothing re-solves, which looks exactly like the solver ignoring it.
+        import traceback
+        traceback.print_exc()
     return None
 
 

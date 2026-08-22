@@ -232,6 +232,12 @@ splits arcs that cross it, adopts hand-drawn counterparts as twins (positive
 side is always the source, so the choice is deterministic), and mirrors
 whatever is left.
 
+**Locks are read from every arc, not from representatives.** A mirrored or
+twinned arc is represented by its partner in the solve, so collecting locks off
+the representatives alone silently discards any pin on the other half — half
+the arcs on a symmetric layout. Conflicting pins on the two halves are reported
+rather than resolved by whichever is seen first.
+
 **Counts are solved over representatives.** `build` maps every arc to its
 source or twin and quantises the reduced system. A mirrored layout has a
 mirrored constraint system, so solving one half solves both — and the counts

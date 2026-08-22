@@ -46,7 +46,21 @@ def _solve_counts(graph, target_edge, fill_background=False):
     rep_of = representative(graph)
     rep_ids = sorted(set(rep_of.values()))
     lengths = {r: graph.arcs[r].length() for r in rep_ids}
-    locks = {r: graph.arcs[r].n_lock for r in rep_ids if graph.arcs[r].n_lock}
+
+    # Locks are collected from EVERY arc and mapped onto its representative.
+    # Reading them off the representatives alone silently dropped any pin on a
+    # mirrored or twinned arc — with symmetry on that is half of them, so
+    # pinning those arcs appeared to do nothing at all.
+    locks, lock_conflicts = {}, []
+    for aid, arc in graph.arcs.items():
+        if not arc.n_lock:
+            continue
+        r = rep_of[aid]
+        want = max(1, int(arc.n_lock))
+        if r in locks and locks[r] != want:
+            lock_conflicts.append((aid, r, locks[r], want))
+            continue
+        locks[r] = want
 
     def rep_sides(pid):
         return [[rep_of[a] for a in side]
@@ -61,6 +75,7 @@ def _solve_counts(graph, target_edge, fill_background=False):
 
     counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
                                 list(graph.patches), rep_sides, locks)
+    qrep["lock_conflicts"] = lock_conflicts
     return {aid: counts_rep[rep_of[aid]] for aid in graph.arcs}, qrep
 
 

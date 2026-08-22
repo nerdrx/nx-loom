@@ -116,7 +116,7 @@ def stage_two():
         bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=4)
         _offscreen_check(ctx)
 
-    finish()
+    _deferred_check(ctx)
 
 
 def _render(ctx, size):
@@ -196,6 +196,42 @@ def _offscreen_check(ctx):
                          & (ap[:, 2] < 0.4)).sum())
         check("hovering an arc highlights the whole arc",
               amber_arc > amber, f"{amber} (node) -> {amber_arc} (arc) amber px")
+
+
+def _deferred_check(ctx):
+    """The rebuild behind a wheel notch is on a timer. Prove the timer fires.
+
+    If it does not, the pin lands and nothing re-solves — indistinguishable
+    from the solver ignoring the pin.
+    """
+    from nx_loom.ops import draw as draw_ops
+    from nx_loom.ops.layout import get_graph, set_graph
+
+    obj = bpy.context.view_layer.objects.active
+    graph = get_graph(obj)
+    if graph is None or not graph.arcs:
+        check("deferred rebuild fires", False, "no layout")
+        return
+
+    aid = sorted(graph.arcs)[0]
+    before = {a: graph.arcs[a].n for a in graph.arcs}
+    graph.arcs[aid].n_lock = int(before[aid]) + 3
+    set_graph(obj, graph)
+    draw_ops.queue_rebuild(obj, delay=0.05)
+
+    def verify():
+        g = get_graph(obj)
+        got = g.arcs[aid].n
+        want = before[aid] + 3
+        check("a queued rebuild actually runs and re-solves", got == want,
+              f"arc {aid}: {before[aid]} -> {got} (wanted {want})")
+        moved = sum(1 for a in g.arcs if a != aid and g.arcs[a].n != before[a])
+        check("and the unpinned arcs re-solve around it", moved > 0,
+              f"{moved} other arc(s) adjusted")
+        finish()
+        return None
+
+    bpy.app.timers.register(verify, first_interval=0.6)
 
 
 def finish():
