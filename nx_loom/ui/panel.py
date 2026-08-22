@@ -250,6 +250,8 @@ class NXLOOM_PT_display(_Sub, bpy.types.Panel):
         layout.prop(st, "overlay_xray")
         layout.prop(st, "corner_angle")
         layout.prop(st, "snap_pixels")
+        layout.prop(st, "pick_pixels")
+        layout.prop(st, "node_falloff")
         layout.prop(st, "rebuild_on_draw")
 
 

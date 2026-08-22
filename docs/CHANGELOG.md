@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.9.2 — unreleased
+
+Three things from drawing on a real model.
+
+**Moving a node wrecked the arc.** It rewrote only the polyline's endpoint and
+left every interior sample where it was, so the arc got a spike at the node
+instead of following it. How an arc follows now depends on how it was made:
+
+- A **clicked segment** has no shape of its own — it was derived from where its
+  endpoints were — so it is re-laid end to end and the whole arc moves.
+- A **freehand stroke** *is* the artist's line, so it bends with a smooth
+  falloff rather than being thrown away. `Bend` controls how much of it
+  responds.
+
+**Clicking felt unresponsive because it was.** Every click that erased an arc,
+dragged a node or toggled a hole rebuilt the entire BVH over the reference —
+86 ms on a 20k-vertex mesh, far worse on a character — and so did every refresh
+after drawing. Surfaces are cached now: **86 ms → 0.08 ms**, rebuilt only when
+the reference actually changes.
+
+The cache is keyed on datablock pointers, not geometry alone. Keyed on geometry
+it matched a *freed* object after a file load and handed back a Surface built
+over dead data. A cached Surface also no longer holds a reference to its
+object at all.
+
+**Grabbing is more forgiving.** `Pick` (26 px) is separate from `Snap` (18 px):
+snapping while drawing should be conservative, but grabbing something should
+not be.
+
+222 headless checks + 8 GUI checks.
+
+
 ## 0.9.1 — unreleased
 
 Two regressions reported from drawing on a real model.

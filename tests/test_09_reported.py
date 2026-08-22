@@ -180,6 +180,7 @@ def run():
                 f"{len(g2.patches)} patches"))
 
     out += run_point_and_drag()
+    out += run_move_and_pick()
     return out
 
 
@@ -274,4 +275,114 @@ def run_point_and_drag():
                 ratio < 4.0,
                 f"{n_small} verts {fast*1e6:.0f}us/ray vs {n_big} verts "
                 f"{slow*1e6:.0f}us/ray ({ratio:.1f}x)"))
+    return out
+
+
+def run_move_and_pick():
+    """Dragging a node, and how responsive clicking is. Both reported."""
+    import time
+
+    from nx_loom.core.surface import (Surface, cached_surface,
+                                      clear_surface_cache)
+
+    out = []
+
+    # Moving a node used to rewrite only the polyline's endpoint, leaving every
+    # interior sample where it was — so the arc got a spike at the node instead
+    # of bending. That is what "moving a node messes up the arc" looks like.
+    # An arc made by clicking two points has no shape of its own — it was
+    # derived from where the endpoints were. Moving one must re-lay the whole
+    # segment, not deform the samples of the old one.
+    g = LayoutGraph()
+    n0 = A.new_node(g, [0, 0, 0])
+    n1 = A.new_node(g, [4, 0, 0])
+    straight = np.array([[x, 0.0, 0.0] for x in np.linspace(0, 4, 17)])
+    sid = A.add_arc(g, n0, n1, straight.copy(), rail="straight")
+    A.move_node(g, n0, [0.0, 1.5, 0.0])
+    sp = np.asarray(g.arcs[sid].path)
+    t = np.linspace(0, 1, len(sp))[:, None]
+    ideal = np.array([0.0, 1.5, 0.0]) * (1 - t) + np.array([4.0, 0.0, 0.0]) * t
+    out.append(("a clicked segment moves as a whole, staying straight",
+                float(np.linalg.norm(sp - ideal, axis=1).max()) < 1e-9,
+                f"deviation {np.linalg.norm(sp - ideal, axis=1).max():.2e}"))
+
+    # A freehand stroke IS the artist's line, so it bends instead.
+    g = LayoutGraph()
+    n0 = A.new_node(g, [0, 0, 0])
+    n1 = A.new_node(g, [4, 0, 0])
+    aid = A.add_arc(g, n0, n1, straight.copy(), rail="surface")
+    A.move_node(g, n0, [0.0, 1.5, 0.0])
+
+    path = np.asarray(g.arcs[aid].path)
+    step = np.linalg.norm(np.diff(path, axis=0), axis=1)
+    dirs = np.diff(path, axis=0) / step[:, None]
+    turn = np.degrees(np.arccos(np.clip((dirs[:-1] * dirs[1:]).sum(axis=1), -1, 1)))
+    out.append(("dragging a node bends a freehand arc instead of spiking it",
+                float(turn.max()) < 20.0,
+                f"max turn {turn.max():.1f} deg (a spike is ~90)"))
+
+    disp = np.linalg.norm(path - straight, axis=1)
+    out.append(("the bend falls off smoothly to the far end",
+                bool(np.all(np.diff(disp) <= 1e-9)) and disp[-1] < 1e-9,
+                f"{disp[0]:.2f} at the node -> {disp[-1]:.2f} at the far end"))
+    out.append(("both endpoints still sit on their nodes",
+                np.allclose(path[0], g.nodes[n0].co)
+                and np.allclose(path[-1], g.nodes[n1].co), ""))
+
+    # a partial falloff must leave the far half alone
+    g2 = LayoutGraph()
+    m0 = A.new_node(g2, [0, 0, 0])
+    m1 = A.new_node(g2, [4, 0, 0])
+    bid = A.add_arc(g2, m0, m1, straight.copy(), rail="surface")
+    A.move_node(g2, m0, [0.0, 1.5, 0.0], falloff=0.4)
+    d2 = np.linalg.norm(np.asarray(g2.arcs[bid].path) - straight, axis=1)
+    out.append(("a partial Bend leaves the far end untouched",
+                d2[0] > 1.0 and float(d2[len(d2) // 2:].max()) < 1e-9,
+                f"far half max {d2[len(d2)//2:].max():.3f}"))
+
+    # on a real surface the bent arc must stay on the surface and stay pinned
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1.0)
+    src = bpy.context.active_object
+    surf = Surface(src, bpy.context.evaluated_depsgraph_get())
+    g3 = LayoutGraph()
+    p0 = A.new_node(g3, [1.0, 0.0, 0.0], surf)
+    p1 = A.new_node(g3, [0.0, 1.0, 0.0], surf)
+    arcpts = []
+    for t in np.linspace(0, 1, 13):
+        v = np.array([np.cos(t * np.pi / 2), np.sin(t * np.pi / 2), 0.0])
+        arcpts.append(v)
+    cid = A.add_arc(g3, p0, p1, np.array(arcpts), surf, rail="surface")
+    target = np.array([0.9, 0.0, 0.44])
+    target /= np.linalg.norm(target)
+    A.move_node(g3, p0, target, surf)
+    moved = np.asarray(g3.arcs[cid].path)
+    off = np.abs(np.linalg.norm(moved, axis=1) - 1.0)
+    out.append(("the bent arc stays on the surface", float(off.max()) < 0.02,
+                f"max radial error {off.max():.4f}"))
+    out.append(("and every sample is re-pinned",
+                g3.arcs[cid].pins is not None
+                and all(pin is not None for pin in g3.arcs[cid].pins), ""))
+
+    # clicking was slow because every click rebuilt the BVH from scratch
+    clear_surface_cache()
+    dg = bpy.context.evaluated_depsgraph_get()
+    t0 = time.perf_counter()
+    Surface(src, dg)
+    cold = time.perf_counter() - t0
+    cached_surface(src, dg)
+    t0 = time.perf_counter()
+    for _ in range(10):
+        cached_surface(src, dg)
+    warm = (time.perf_counter() - t0) / 10
+    out.append(("repeat clicks reuse the surface instead of rebuilding it",
+                warm < cold * 0.1,
+                f"build {cold*1000:.0f} ms vs cached {warm*1000:.3f} ms"))
+
+    src.data.vertices[0].co.x += 0.5
+    t0 = time.perf_counter()
+    cached_surface(src, dg)
+    after = time.perf_counter() - t0
+    out.append(("but editing the reference invalidates it",
+                after > cold * 0.3, f"{after*1000:.0f} ms after an edit"))
     return out

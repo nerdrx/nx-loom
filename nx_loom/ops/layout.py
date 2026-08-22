@@ -9,7 +9,7 @@ from ..core import delta as delta_mod
 from ..core import symmetry as sym
 from ..core.build import build, mesh_stats, solve_edge_for_count
 from ..core.graph import GRAPH_KEY, LayoutGraph, from_edge_chains, trace_chains
-from ..core.surface import Surface
+from ..core.surface import Surface, cached_surface
 
 DELTA_KEY = delta_mod.DELTA_KEY
 
@@ -45,7 +45,7 @@ def _surface_for(graph, context):
     ref = bpy.data.objects.get(name) if name else None
     if ref is None:
         ref = context.scene.nx_loom.reference
-    return Surface(ref, context.evaluated_depsgraph_get()) if ref else None
+    return cached_surface(ref, context.evaluated_depsgraph_get()) if ref else None
 
 
 def rebuild_object(obj, context, report_fn=None):
@@ -149,7 +149,7 @@ class NXLOOM_OT_layout_from_selection(bpy.types.Operator):
         graph.settings["target_edge"] = st.target_edge
 
         bpy.ops.object.mode_set(mode="OBJECT")
-        surface = Surface(src, context.evaluated_depsgraph_get())
+        surface = cached_surface(src, context.evaluated_depsgraph_get())
         for node in graph.nodes.values():
             node.pin = surface.pin(node.co)
         for arc in graph.arcs.values():

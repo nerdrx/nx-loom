@@ -21,7 +21,10 @@ class Surface:
     """Triangulated snapshot of a reference object, with a BVH over it."""
 
     def __init__(self, obj, depsgraph=None):
-        self.obj = obj
+        # Only the name is kept. A cached Surface can outlive a file load, and
+        # holding a reference to a freed datablock is a crash waiting to be
+        # dereferenced.
+        self.name = obj.name
         depsgraph = depsgraph or bpy.context.evaluated_depsgraph_get()
         eval_obj = obj.evaluated_get(depsgraph)
         bm = bmesh.new()
@@ -147,3 +150,57 @@ def resample(path, n, project=None):
     if project is not None and n > 1:
         out[1:-1] = project(out[1:-1])
     return out
+
+
+# -- caching ---------------------------------------------------------------
+#
+# Building a Surface means building a BVH over the whole reference — 148 ms on
+# a 32k-vertex mesh, and far worse on a real character. Every click that erases
+# an arc, drags a node or toggles a hole used to pay that, and so did every
+# refresh after drawing an arc, which is what made clicking feel unresponsive.
+
+_CACHE = {}
+
+
+def _fingerprint(obj):
+    me = obj.data
+    # Datablock pointers first. Without them a fresh object with identical
+    # geometry — a re-added primitive, anything after a file load — matches the
+    # fingerprint of a *freed* one and the cache hands back a Surface built
+    # over dead data. Caching bpy datablocks across a file load is never safe
+    # on geometry alone.
+    n = len(me.vertices)
+    step = max(n // 64, 1)
+    probe = []
+    for i in range(0, n, step):
+        co = me.vertices[i].co
+        probe.append((round(co.x, 5), round(co.y, 5), round(co.z, 5)))
+    return (obj.as_pointer(), me.as_pointer(), obj.data.name, n,
+            len(me.polygons), len(obj.modifiers),
+            tuple(round(v, 6) for row in obj.matrix_world for v in row),
+            tuple(probe))
+
+
+def cached_surface(obj, depsgraph=None):
+    """A Surface for obj, rebuilt only when the mesh actually changed.
+
+    The fingerprint samples up to 64 vertices rather than all of them: a full
+    checksum would be cheap next to a BVH build but is still O(n) on every
+    mouse click, and a sparse probe catches sculpt edits in practice.
+    """
+    if obj is None:
+        return None
+    key = _fingerprint(obj)
+    hit = _CACHE.get(obj.name)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    surf = Surface(obj, depsgraph)
+    _CACHE[obj.name] = (key, surf)
+    return surf
+
+
+def clear_surface_cache(name=None):
+    if name is None:
+        _CACHE.clear()
+    else:
+        _CACHE.pop(name, None)

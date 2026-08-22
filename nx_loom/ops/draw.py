@@ -17,7 +17,7 @@ from ..core.authoring import (add_arc, decimate, dissolve_node, move_node,
 from ..core.graph import GRAPH_KEY
 from ..core.picking import (interp_rays, pixel_radius_world, ray_surface,
                             screen_ray, trace_rays)
-from ..core.surface import Surface
+from ..core.surface import Surface, cached_surface
 from ..ui import overlay
 from .layout import active_object, get_graph, rebuild_object, set_graph
 
@@ -41,7 +41,7 @@ def _surface_of(graph, context):
         ref = context.scene.nx_loom.reference
     if ref is None:
         return None
-    return Surface(ref, context.evaluated_depsgraph_get())
+    return cached_surface(ref, context.evaluated_depsgraph_get())
 
 
 def _mouse_ray(context, event):
@@ -54,8 +54,14 @@ def _snap_radius(context, point):
                               point, context.scene.nx_loom.snap_pixels)
 
 
+def _pick_radius(context, point):
+    """Grabbing something should be more forgiving than snapping to it."""
+    return pixel_radius_world(context.region, context.space_data.region_3d,
+                              point, context.scene.nx_loom.pick_pixels)
+
+
 def commit_arc(graph, surface, rays, snap_radius, min_step,
-               arc_type="flow", start_node=None):
+               arc_type="flow", start_node=None, rail="surface"):
     """Trace rays onto the surface and add the resulting arc.
 
     Returns (arc_id, start_node, end_node), or None when the stroke produced
@@ -63,11 +69,11 @@ def commit_arc(graph, surface, rays, snap_radius, min_step,
     """
     path = trace_rays(surface, rays, min_step=min_step * 0.25)
     return commit_path(graph, surface, path, snap_radius, min_step,
-                       arc_type, start_node)
+                       arc_type, start_node, rail)
 
 
 def commit_path(graph, surface, path, snap_radius, min_step,
-                arc_type="flow", start_node=None):
+                arc_type="flow", start_node=None, rail="surface"):
     """Add an arc from an already-traced surface path."""
     path = np.asarray(path, dtype=float)
     if len(path) < 2:
@@ -82,7 +88,7 @@ def commit_path(graph, surface, path, snap_radius, min_step,
     path = decimate(path, min_step)
     if len(path) < 2:
         path = np.vstack([graph.nodes[a].co, graph.nodes[b].co])
-    aid = add_arc(graph, a, b, path, surface, type=arc_type)
+    aid = add_arc(graph, a, b, path, surface, type=arc_type, rail=rail)
     return aid, a, b
 
 
@@ -205,7 +211,7 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         radius = _snap_radius(context, path[-1])
         res = commit_path(self.graph, self.surface, path, radius, self.min_step,
                           arc_type=context.scene.nx_loom.arc_type,
-                          start_node=self.anchor)
+                          start_node=self.anchor, rail="surface")
         return self._after_commit(context, res)
 
     def _commit(self, context, rays):
@@ -215,9 +221,11 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         if len(probe):
             point = probe[0]
         radius = _snap_radius(context, point) if point is not None else self.min_step
+        # reached only from a click-to-click segment; a drag commits its
+        # already-traced path through _commit_traced and stays "surface"
         res = commit_arc(self.graph, self.surface, rays, radius, self.min_step,
                          arc_type=context.scene.nx_loom.arc_type,
-                         start_node=self.anchor)
+                         start_node=self.anchor, rail="straight")
         return self._after_commit(context, res)
 
     def _after_commit(self, context, res):
@@ -356,7 +364,7 @@ def _arc_under(context, graph, event, surface):
     point = ray_surface(surface, origin, direction)
     if point is None:
         return None, None
-    radius = _snap_radius(context, point)
+    radius = _pick_radius(context, point)
     return point, nearest_on_arc(graph, point, radius)
 
 
@@ -381,7 +389,7 @@ class NXLOOM_OT_erase(bpy.types.Operator):
         if point is None:
             return {"CANCELLED"}
 
-        node = nearest_node(graph, point, _snap_radius(context, point))
+        node = nearest_node(graph, point, _pick_radius(context, point))
         if node is not None and dissolve_node(graph, node[0], surface) is not None:
             refresh(obj, graph, context)
             self.report({"INFO"}, "Node dissolved")
@@ -415,9 +423,11 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
         point = ray_surface(self.surface, origin, direction)
         if point is None:
             return {"CANCELLED"}
-        hit = nearest_node(self.graph, point, _snap_radius(context, point))
+        hit = nearest_node(self.graph, point, _pick_radius(context, point))
         if hit is None:
-            self.report({"WARNING"}, "No layout node under the cursor")
+            self.report({"WARNING"},
+                        "No layout node under the cursor — raise Pick in the "
+                        "Display panel if nodes are hard to grab")
             return {"CANCELLED"}
         self.nid = hit[0]
         self.start = np.array(self.graph.nodes[self.nid].co, dtype=float)
@@ -430,7 +440,8 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
             origin, direction = _mouse_ray(context, event)
             point = ray_surface(self.surface, origin, direction)
             if point is not None:
-                move_node(self.graph, self.nid, point, self.surface)
+                move_node(self.graph, self.nid, point, self.surface,
+                          falloff=context.scene.nx_loom.node_falloff)
                 overlay.set_preview(snap=point)
                 set_graph(active_object(context), self.graph)
                 overlay.mark_dirty()
@@ -441,7 +452,8 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
             refresh(active_object(context), self.graph, context)
             return {"FINISHED"}
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
-            move_node(self.graph, self.nid, self.start, self.surface)
+            move_node(self.graph, self.nid, self.start, self.surface,
+                      falloff=context.scene.nx_loom.node_falloff)
             set_graph(active_object(context), self.graph)
             context.window.cursor_modal_restore()
             overlay.clear_preview()

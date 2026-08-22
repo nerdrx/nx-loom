@@ -70,6 +70,19 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "world units so snapping feels the same at any zoom",
         default=18.0, min=2.0, max=80.0,
     )
+    pick_pixels: FloatProperty(
+        name="Pick",
+        description="How close the cursor has to be to grab a node or an arc. "
+                    "Kept separate from Snap: snapping while drawing should be "
+                    "conservative, but grabbing something should be forgiving",
+        default=26.0, min=4.0, max=120.0,
+    )
+    node_falloff: FloatProperty(
+        name="Bend",
+        description="Fraction of an arc that follows a node you drag. 1.0 "
+                    "bends the whole arc; lower values keep the far end put",
+        default=1.0, min=0.05, max=1.0,
+    )
     rebuild_on_draw: BoolProperty(
         name="Rebuild While Drawing",
         description="Regenerate the mesh after each arc. Turn off on heavy "

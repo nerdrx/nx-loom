@@ -144,22 +144,94 @@ def decimate(path, min_step):
     return path[keep]
 
 
-def move_node(graph, nid, co, surface=None):
-    """Move a node and drag the ends of every arc touching it."""
+def retrace_straight(graph, arc, surface, samples=None):
+    """Re-lay an arc as a straight run across the surface between its nodes.
+
+    A click-to-click segment has no shape of its own — it was *derived* from
+    where its two endpoints were. When one of them moves, the honest answer is
+    to lay the segment again between the new positions, not to deform the old
+    samples: the whole arc should follow, which is what it looks like it should
+    do.
+    """
+    a = np.asarray(graph.nodes[arc.a].co, dtype=float)
+    b = np.asarray(graph.nodes[arc.b].co, dtype=float)
+    n = samples if samples is not None else max(len(arc.path), 2)
+    t = np.linspace(0.0, 1.0, n)[:, None]
+    path = a * (1.0 - t) + b * t
+    if surface is not None and n > 2:
+        path[1:-1] = surface.project(path[1:-1])
+    path[0], path[-1] = a, b
+    arc.path = path
+    if surface is not None:
+        arc.pins = [surface.pin(p) for p in path]
+
+
+def move_node(graph, nid, co, surface=None, falloff=1.0):
+    """Move a node, taking every arc touching it along.
+
+    How an arc follows depends on how it was made. A straight segment between
+    two clicked points is re-laid end to end — its old samples described
+    nothing but where the endpoints used to be. A freehand stroke *is* the
+    artist's line, so it is bent with a smooth falloff instead of thrown away.
+
+    Rewriting only the polyline's endpoint leaves every interior sample where
+    it was, so the arc gets a spike at the node instead of curving — which is
+    what "moving a node messes up the arc" looks like. The displacement is
+    spread along the arc with a smooth falloff from the moved end, and the
+    result is reprojected so it stays on the surface.
+
+    ``falloff`` is the fraction of each arc's length that responds: 1.0 bends
+    the whole arc, smaller values keep the far end pinned and bend only the
+    part near the node.
+    """
     co = np.asarray(co, dtype=float)
     node = graph.nodes[nid]
+    delta = co - np.asarray(node.co, dtype=float)
     node.co = co
     if surface is not None:
         node.pin = surface.pin(co)
+    if float(np.linalg.norm(delta)) <= 0.0:
+        return
+
     for arc in graph.arcs.values():
-        if arc.a == nid:
-            arc.path[0] = co
-            if arc.pins:
-                arc.pins[0] = node.pin
-        if arc.b == nid:
-            arc.path[-1] = co
-            if arc.pins:
-                arc.pins[-1] = node.pin
+        at_start = arc.a == nid
+        at_end = arc.b == nid
+        if not (at_start or at_end):
+            continue
+
+        if arc.rail == "straight":
+            retrace_straight(graph, arc, surface)
+            continue
+
+        path = np.asarray(arc.path, dtype=float).copy()
+        if len(path) < 2:
+            continue
+
+        seg = np.linalg.norm(np.diff(path, axis=0), axis=1)
+        cum = np.concatenate([[0.0], np.cumsum(seg)])
+        total = cum[-1]
+        if total <= 1e-12:
+            path[:] = co
+        else:
+            # distance from the moved end, normalised by the falloff reach
+            d = cum if at_start else (total - cum)
+            reach = max(total * max(min(falloff, 1.0), 1e-6), 1e-12)
+            t = np.clip(d / reach, 0.0, 1.0)
+            w = 1.0 - (t * t * (3.0 - 2.0 * t))       # smoothstep, 1 at the node
+            if at_start and at_end:
+                w = np.maximum(w, 1.0 - (np.clip((total - cum) / reach, 0, 1) ** 2
+                                         * (3 - 2 * np.clip((total - cum) / reach, 0, 1))))
+            path = path + delta * w[:, None]
+
+        path[0] = graph.nodes[arc.a].co
+        path[-1] = graph.nodes[arc.b].co
+        if surface is not None and len(path) > 2:
+            path[1:-1] = surface.project(path[1:-1])
+            path[0] = graph.nodes[arc.a].co
+            path[-1] = graph.nodes[arc.b].co
+        arc.path = path
+        if surface is not None:
+            arc.pins = [surface.pin(pt) for pt in path]
 
 
 def dissolve_node(graph, nid, surface=None):
