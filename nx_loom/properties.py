@@ -1,7 +1,8 @@
 """Addon properties. The layout itself lives on the object, not here (SPEC §1)."""
 
 import bpy
-from bpy.props import BoolProperty, FloatProperty, IntProperty, PointerProperty
+from bpy.props import (BoolProperty, EnumProperty, FloatProperty, IntProperty,
+                       PointerProperty)
 
 
 class NXLoomSettings(bpy.types.PropertyGroup):
@@ -32,6 +33,40 @@ class NXLoomSettings(bpy.types.PropertyGroup):
     reproject: BoolProperty(
         name="Reproject",
         description="Snap generated interior vertices back onto the reference",
+        default=True,
+    )
+    arc_type: EnumProperty(
+        name="Arc Type",
+        description="Type given to newly drawn arcs",
+        items=[
+            ("flow", "Flow", "Ordinary edge-flow arc"),
+            ("crease", "Crease", "Hard edge; the generated mesh is marked sharp here"),
+            ("boundary", "Boundary", "Open border of the surface"),
+            ("seam", "Seam", "UV seam / symmetry seam"),
+        ],
+        default="flow",
+    )
+    snap_pixels: FloatProperty(
+        name="Snap",
+        description="Snap radius in pixels. Defined on screen rather than in "
+                    "world units so snapping feels the same at any zoom",
+        default=18.0, min=2.0, max=80.0,
+    )
+    rebuild_on_draw: BoolProperty(
+        name="Rebuild While Drawing",
+        description="Regenerate the mesh after each arc. Turn off on heavy "
+                    "layouts and rebuild manually",
+        default=True,
+    )
+    show_overlay: BoolProperty(
+        name="Show Layout",
+        description="Draw the layout graph in the viewport",
+        default=True,
+    )
+    overlay_xray: BoolProperty(
+        name="Layout X-Ray",
+        description="Draw the layout on top of everything instead of letting "
+                    "the surface occlude it",
         default=True,
     )
     auto_rebuild: BoolProperty(

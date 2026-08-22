@@ -11,6 +11,23 @@ from ..core.surface import Surface
 DELTA_KEY = "nx_loom_delta"
 
 
+def active_object(context):
+    """The active object, safely.
+
+    ``context.active_object`` simply does not exist in a restricted context —
+    a timer, a handler, a driver — and touching it there raises rather than
+    returning None. A poll that raises spams the console on every redraw, so
+    every poll in this addon goes through here.
+    """
+    obj = getattr(context, "active_object", None)
+    if obj is not None:
+        return obj
+    view_layer = getattr(context, "view_layer", None)
+    if view_layer is None:
+        return None
+    return getattr(view_layer.objects, "active", None)
+
+
 def get_graph(obj):
     text = obj.get(GRAPH_KEY) if obj else None
     return LayoutGraph.from_json(text) if text else None
@@ -66,11 +83,11 @@ class NXLOOM_OT_layout_from_selection(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
-        return obj and obj.type == "MESH" and obj.mode == "EDIT"
+        obj = active_object(context)
+        return bool(obj and obj.type == "MESH" and obj.mode == "EDIT")
 
     def execute(self, context):
-        src = context.active_object
+        src = active_object(context)
         bm = bmesh.from_edit_mesh(src.data)
         sel = [e for e in bm.edges if e.select]
         if not sel:
@@ -127,6 +144,40 @@ class NXLOOM_OT_layout_from_selection(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NXLOOM_OT_new_layout(bpy.types.Operator):
+    """Start an empty layout pinned to the active mesh, ready to draw on"""
+
+    bl_idname = "nxloom.new_layout"
+    bl_label = "New Layout"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj and obj.type == "MESH" and GRAPH_KEY not in obj)
+
+    def execute(self, context):
+        src = active_object(context)
+        graph = LayoutGraph(reference=src.name)
+        graph.settings["target_edge"] = context.scene.nx_loom.target_edge
+
+        mesh = bpy.data.meshes.new(f"{src.name}_loom")
+        obj = bpy.data.objects.new(f"{src.name}_loom", mesh)
+        obj.matrix_world = src.matrix_world.copy()
+        context.collection.objects.link(obj)
+        set_graph(obj, graph)
+        obj["nx_loom_bad_patches"] = []
+
+        if context.scene.nx_loom.reference is None:
+            context.scene.nx_loom.reference = src
+        for o in context.selected_objects:
+            o.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        self.report({"INFO"}, f"Empty layout on {src.name} — pick the Draw Arc tool")
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_rebuild(bpy.types.Operator):
     """Regenerate the mesh from its layout graph"""
 
@@ -136,11 +187,11 @@ class NXLOOM_OT_rebuild(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
-        return obj is not None and GRAPH_KEY in obj
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
 
     def execute(self, context):
-        rep = rebuild_object(context.active_object, context)
+        rep = rebuild_object(active_object(context), context)
         if rep is None:
             self.report({"ERROR"}, "No layout on this object")
             return {"CANCELLED"}
@@ -163,11 +214,11 @@ class NXLOOM_OT_apply(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
-        return obj is not None and GRAPH_KEY in obj
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
 
     def execute(self, context):
-        obj = context.active_object
+        obj = active_object(context)
         del obj[GRAPH_KEY]
         if DELTA_KEY in obj:
             del obj[DELTA_KEY]
@@ -176,6 +227,7 @@ class NXLOOM_OT_apply(bpy.types.Operator):
 
 
 _CLASSES = (
+    NXLOOM_OT_new_layout,
     NXLOOM_OT_layout_from_selection,
     NXLOOM_OT_rebuild,
     NXLOOM_OT_apply,

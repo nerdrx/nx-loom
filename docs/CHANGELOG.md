@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0 — unreleased
+
+The drawing tool. A layout can now be authored from nothing instead of traced
+off an existing mesh.
+
+- **Loom Draw** toolbar tool (`WorkSpaceTool`, tool-scoped keymap): click to
+  chain straight-on-surface segments, drag for freehand, Ctrl to erase or
+  dissolve, Shift to drag a node, Alt to retype an arc.
+- Straight segments interpolate *rays* and re-cast every sample, so they wrap
+  over a bulge instead of tunnelling through it.
+- Snap radius is specified in pixels and converted per click, so snapping feels
+  the same at any zoom. Ending a stroke on an existing arc splits it into a
+  T-junction.
+- `core/authoring.py` — split, dissolve, move, erase, prune, decimate. All
+  bpy-free, so the drawing behaviour is tested with synthetic rays rather than
+  simulated mouse events.
+- GPU overlay: arcs by type, nodes by role, refused patches in red. Draw
+  handlers never raise — missing region, missing graph and failed batch builds
+  are early-returns.
+- `New Layout` starts an empty layout pinned to the active mesh.
+- **Fixed: every `poll()` raised `AttributeError` in restricted contexts.**
+  `context.active_object` does not exist in a timer or handler; polls now go
+  through `active_object()`. This spammed the console on redraws.
+- `scripts/gui_check.sh` verifies the viewport half under xvfb: tool
+  activation, modal poll, and overlay pixels via an offscreen render.
+- 79 headless checks + 8 GUI checks.
+
+
 ## 0.1.0 — unreleased
 
 First cut: the layout graph, the quantizer, patch fill, and the rebuild

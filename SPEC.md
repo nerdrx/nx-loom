@@ -220,12 +220,41 @@ and reject it.
 
 ## 8. UI surface
 
-`View3D > Sidebar > NX Loom`. Object-mode panel: reference picker, density,
-Rebuild / Auto / Apply, and a patch health list (solved / unquantizable /
-non-manifold) where each row selects the offending arcs. Layout editing is a
-dedicated modal tool with a GPU overlay; **it is not Blender edit mode** and
-must never be confused with it — the generated mesh is read-only in the UI
-until Apply.
+`View3D > Sidebar > NX Loom` for state; the toolbar for authoring.
+
+**Loom Draw** is a `WorkSpaceTool`, not a hotkey. Its keymap is scoped to the
+tool, so LMB means "draw an arc" only while it is active and no existing
+Blender binding is displaced:
+
+| Input | Action |
+|---|---|
+| Click | chain a straight-on-surface segment from the pending anchor |
+| Drag | freehand arc |
+| Ctrl-click | erase the arc under the cursor, or dissolve a valence-2 node |
+| Shift-drag | move the node under the cursor along the surface |
+| Alt-click | give the arc under the cursor the current arc type |
+| Esc / RMB | end the chain; again to leave the tool |
+
+Straight segments are traced by **interpolating rays, not world positions** —
+every sample is re-cast at the surface, so a segment drawn across a bulge wraps
+over it instead of tunnelling through. Snapping is defined in *pixels* and
+converted to world units per click, so it feels identical zoomed into an ear or
+looking at a whole body. Ending a stroke on an existing arc splits it, which is
+what makes a T-junction something you draw rather than plan for.
+
+The overlay draws the layout — arcs coloured by type, nodes sized by role, and
+**any patch the solver refused, in red**. A layout problem has to be visible
+while you are drawing, not discovered later as a hole. A draw handler must
+never raise: no region, no graph and a failed batch build are all
+early-returns, because an exception inside a draw callback breaks the whole
+viewport, not just this overlay.
+
+Every `poll()` reads the active object through `ops.layout.active_object`.
+`context.active_object` does not exist in restricted contexts and raises rather
+than returning None, and a poll that raises spams the console on every redraw.
+
+Layout editing is never Blender's Edit Mode. The generated mesh is a build
+product and stays read-only in the UI until Apply.
 
 ## 9. Distribution
 
@@ -238,7 +267,21 @@ until Apply.
 ## 10. Testing
 
 Headless, one Blender process, same shape as QuadForge's suite:
-`tests/run_all.sh`, `NXL_ONLY=`, `NXL_ISOLATE=1`, `NXL_BLENDER=`.
+`tests/run_all.sh`, `NXL_ONLY=`, `NXL_BLENDER=`.
+
+The viewport half is covered by `scripts/gui_check.sh`, which runs a real
+Blender window under xvfb. Two traps are baked into that script because both
+produced false results:
+
+- **`XDG_RUNTIME_DIR` must be cleared, not just `WAYLAND_DISPLAY`.** Blender's
+  Wayland backend falls back to the socket name `wayland-0` and finds it
+  through the runtime dir, so clearing only `WAYLAND_DISPLAY` still opens a
+  window on the developer's real desktop — and a full-desktop screenshot then
+  "passes" a colour check on the wallpaper.
+- **`screen.screenshot` is useless under llvmpipe.** It reads the window's
+  front buffer and returns solid black whether the overlay drew or not. Verify
+  overlay pixels with a `GPUOffScreen` render instead; it starts black and only
+  the overlay writes into it.
 Pure-math modules (`quantize`, `fill`) must be importable and testable
 **without bpy** — they take and return plain numpy/lists. That rule is load
 bearing: it is what makes the solver debuggable outside Blender.

@@ -5,7 +5,7 @@ to discover as a hole."""
 import bpy
 
 from ..core.graph import GRAPH_KEY
-from ..ops.layout import get_graph
+from ..ops.layout import active_object, get_graph
 
 
 class NXLOOM_PT_main(bpy.types.Panel):
@@ -18,10 +18,15 @@ class NXLOOM_PT_main(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         st = context.scene.nx_loom
-        obj = context.active_object
+        obj = active_object(context)
 
         col = layout.column(align=True)
         col.prop(st, "reference")
+
+        row = layout.row(align=True)
+        row.prop(st, "show_overlay", text="", icon="OVERLAY")
+        row.prop(st, "overlay_xray", text="", icon="XRAY")
+        row.prop(st, "arc_type", text="")
 
         if obj and obj.mode == "EDIT":
             box = layout.box()
@@ -34,9 +39,21 @@ class NXLOOM_PT_main(bpy.types.Panel):
         if not has_graph:
             box = layout.box()
             box.label(text="No layout on this object", icon="INFO")
-            box.label(text="Select edges in Edit Mode, then")
+            box.operator("nxloom.new_layout", icon="ADD")
+            box.label(text="Then pick the Loom Draw tool")
+            box.label(text="in the toolbar and draw.")
+            box.separator()
+            box.label(text="Or trace an existing mesh: select")
+            box.label(text="edges in Edit Mode and use")
             box.label(text="Layout from Selected Edges.")
             return
+
+        box = layout.box()
+        box.label(text="Draw", icon="GREASEPENCIL")
+        box.operator("nxloom.draw_arc", icon="IPO_LINEAR")
+        sub = box.column(align=True)
+        sub.prop(st, "snap_pixels")
+        sub.prop(st, "rebuild_on_draw")
 
         box = layout.box()
         box.label(text="Density", icon="MOD_MESHDEFORM")
@@ -66,6 +83,15 @@ class NXLOOM_PT_main(bpy.types.Panel):
             for n in sorted(sides):
                 grid.label(text=f"  {n}-sided")
                 grid.label(text=str(sides[n]))
+
+            bad = list(obj.get("nx_loom_bad_patches", []) or [])
+            if bad:
+                warn = box.column(align=True)
+                warn.alert = True
+                warn.label(text=f"{len(bad)} patch(es) unresolved", icon="ERROR")
+                warn.label(text="Add an arc, or change density.")
+            elif graph.patches:
+                box.label(text="All patches resolved", icon="CHECKMARK")
 
 
 _CLASSES = (NXLOOM_PT_main,)

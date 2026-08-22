@@ -65,16 +65,17 @@ solve.
 
 ## Status
 
-**v0.1.0 — the core works, the drawing tool does not exist yet.**
+**v0.2.0 — you can draw a layout and get a mesh.**
 
-Working: the layout graph and its serialisation, patch discovery, the
-quantizer, patch fill, the rebuild pipeline, and authoring bootstrapped from
-edge selection. Verified closed and all-quad (χ=2, zero non-manifold, zero
-boundary, zero surface deviation) at every density tested on icosphere, UV
-sphere and cylinder layouts. 65 headless checks, green on Blender 5.2.0.
+Working: the layout graph, patch discovery, the quantizer, patch fill, the
+rebuild pipeline, the **Loom Draw** toolbar tool and the viewport overlay.
+Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
+surface deviation) at every density on icosphere, UV sphere and cylinder
+layouts — including a layout *drawn from nothing* on a sphere. 79 headless
+checks plus 8 GUI checks, green on Blender 5.2.0.
 
-Not written yet: the modal draw tool with its viewport overlay, the delta layer
-for hand edits, data transfer on Apply, and every suggestion lane.
+Not written yet: the delta layer for hand edits, data transfer on Apply, and
+every suggestion lane.
 
 A patch NX Loom cannot quantize, split or fill without going non-manifold is
 dropped and named in the report — never fudged into the mesh.
@@ -83,12 +84,26 @@ dropped and named in the report — never fudged into the mesh.
 
 1. Install `nx-loom-<version>.zip` (Preferences → Add-ons → Install), or via
    [NX Hub](https://github.com/nerdrx/nx-hub).
-2. Select your reference mesh, enter Edit Mode, and select the edges that
-   describe the layout you want — Blender's loop and ring selection is the
-   authoring tool for now.
-3. **View3D → Sidebar → NX Loom → Layout from Selected Edges.**
-4. Adjust **Density** and hit **Rebuild**. Repeat.
+2. Select your reference mesh. **Sidebar → NX Loom → New Layout.**
+3. Pick **Loom Draw** in the toolbar and draw on the surface:
+
+   | Input | Action |
+   |---|---|
+   | Click | chain a straight segment along the surface |
+   | Drag | freehand arc |
+   | Ctrl-click | erase an arc / dissolve a node |
+   | Shift-drag | move a node |
+   | Alt-click | retype an arc (flow / crease / boundary / seam) |
+   | Esc, RMB | end the chain; again to leave the tool |
+
+   Strokes snap to existing nodes, and ending one on an existing arc splits it
+   into a T-junction. Enclose an area and it becomes a patch, filled at once.
+4. Adjust **Density**. Any patch the solver refuses is drawn **red** in the
+   viewport and counted in the panel, so a problem is visible while you draw.
 5. **Apply** when you want a plain mesh.
+
+To trace an existing mesh instead of drawing: select edges in Edit Mode and use
+**Layout from Selected Edges**.
 
 The panel reports how many patches of each arity it found, so an unexpected
 20-sided patch is visible before it becomes a hole.
@@ -100,7 +115,9 @@ tests/run_all.sh
 ```
 
 Runs headless in Blender. `NXL_ONLY=test_03` filters, `NXL_BLENDER=` overrides
-the binary.
+the binary. `scripts/gui_check.sh` covers the viewport half — tool activation,
+the modal path, and overlay pixels via an offscreen render — in a real Blender
+window under xvfb.
 
 `nx_loom/core/quantize.py` and `nx_loom/core/fill.py` are pure numpy and stay
 importable without `bpy` — that rule is load bearing, it is what lets the

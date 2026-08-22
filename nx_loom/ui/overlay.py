@@ -1,0 +1,221 @@
+"""Viewport overlay for the layout graph.
+
+The layout is the document, so it has to be the thing you can see. The
+generated mesh is drawn by Blender as an ordinary mesh; this draws what
+actually matters on top of it — arcs by type, nodes by role, and any patch the
+solver refused, in red, before it becomes a hole you find later.
+"""
+
+from __future__ import annotations
+
+import bpy
+import gpu
+import numpy as np
+from gpu_extras.batch import batch_for_shader
+
+from ..core.graph import GRAPH_KEY
+
+# NX brand accent #7700FF, plus the type palette derived around it.
+ACCENT = (0.467, 0.0, 1.0, 1.0)
+COL_ARC = {
+    "flow": (0.62, 0.44, 1.0, 0.85),
+    "crease": (1.0, 0.55, 0.15, 0.95),
+    "boundary": (0.25, 0.85, 1.0, 0.95),
+    "seam": (0.35, 1.0, 0.55, 0.95),
+}
+COL_NODE = (0.72, 0.42, 1.0, 1.0)
+COL_CORNER = (1.0, 1.0, 1.0, 1.0)
+COL_BAD = (1.0, 0.18, 0.28, 1.0)
+COL_PREVIEW = (1.0, 1.0, 1.0, 0.95)
+COL_SNAP = (1.0, 0.85, 0.2, 1.0)
+
+_handle = None
+_preview = {"path": None, "snap": None, "anchor": None}
+_cache = {"key": None, "batches": None}
+
+
+def set_preview(path=None, snap=None, anchor=None):
+    _preview["path"] = path
+    _preview["snap"] = snap
+    _preview["anchor"] = anchor
+    _tag_redraw()
+
+
+def clear_preview():
+    set_preview(None, None, None)
+
+
+def mark_dirty():
+    _cache["key"] = None
+    _tag_redraw()
+
+
+def _tag_redraw():
+    wm = bpy.context.window_manager
+    if not wm:
+        return
+    for win in wm.windows:
+        for area in win.screen.areas:
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+
+
+def _graph_of(obj):
+    if obj is None or GRAPH_KEY not in obj:
+        return None
+    from ..ops.layout import get_graph
+    try:
+        return get_graph(obj)
+    except Exception:
+        return None
+
+
+def _segments(graph):
+    """Arc polylines as line-list vertex pairs, grouped by arc type."""
+    by_type = {}
+    for arc in graph.arcs.values():
+        path = np.asarray(arc.path, dtype=float)
+        if len(path) < 2:
+            continue
+        pairs = by_type.setdefault(arc.type if arc.type in COL_ARC else "flow", [])
+        for i in range(len(path) - 1):
+            pairs.append(tuple(path[i]))
+            pairs.append(tuple(path[i + 1]))
+    return by_type
+
+
+def _bad_patch_loops(graph, bad_ids):
+    verts = []
+    for pid in bad_ids:
+        patch = graph.patches.get(pid)
+        if patch is None:
+            continue
+        for side in patch.sides:
+            for aid, _ in side:
+                arc = graph.arcs.get(aid)
+                if arc is None:
+                    continue
+                path = np.asarray(arc.path, dtype=float)
+                for i in range(len(path) - 1):
+                    verts.append(tuple(path[i]))
+                    verts.append(tuple(path[i + 1]))
+    return verts
+
+
+def _build(graph, bad_ids):
+    line_shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
+    point_shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+
+    batches = {"lines": [], "points": []}
+    for kind, pairs in _segments(graph).items():
+        if pairs:
+            batches["lines"].append(
+                (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
+                 COL_ARC[kind], 2.4)
+            )
+    bad = _bad_patch_loops(graph, bad_ids)
+    if bad:
+        batches["lines"].append(
+            (batch_for_shader(line_shader, "LINES", {"pos": bad}), COL_BAD, 5.0)
+        )
+
+    val = graph.valence()
+    plain = [tuple(n.co) for nid, n in graph.nodes.items() if val.get(nid, 0) == 2]
+    corner = [tuple(n.co) for nid, n in graph.nodes.items() if val.get(nid, 0) != 2]
+    if plain:
+        batches["points"].append(
+            (batch_for_shader(point_shader, "POINTS", {"pos": plain}), COL_NODE, 6.0))
+    if corner:
+        batches["points"].append(
+            (batch_for_shader(point_shader, "POINTS", {"pos": corner}), COL_CORNER, 9.0))
+    return line_shader, point_shader, batches
+
+
+def draw():
+    ctx = bpy.context
+    st = getattr(ctx.scene, "nx_loom", None)
+    if st is None or not st.show_overlay:
+        return
+    obj = getattr(ctx, "active_object", None)
+    graph = _graph_of(obj)
+    if graph is None:
+        return
+
+    bad_ids = set(obj.get("nx_loom_bad_patches", []) or [])
+    key = (obj.name, obj.get(GRAPH_KEY, "")[:64], len(obj.get(GRAPH_KEY, "")), tuple(sorted(bad_ids)))
+    if _cache["key"] != key:
+        try:
+            _cache["batches"] = _build(graph, bad_ids)
+            _cache["key"] = key
+        except Exception:
+            return
+    line_shader, point_shader, batches = _cache["batches"]
+
+    # A draw handler can be called with no region bound (offscreen rendering,
+    # restricted contexts). viewportSize only scales line width, so a sane
+    # default is better than raising inside a draw callback.
+    region = getattr(ctx, "region", None)
+    view_size = (region.width, region.height) if region else (1920.0, 1080.0)
+    gpu.state.blend_set("ALPHA")
+    gpu.state.depth_test_set("NONE" if st.overlay_xray else "LESS_EQUAL")
+
+    line_shader.bind()
+    line_shader.uniform_float("viewportSize", view_size)
+    for batch, color, width in batches["lines"]:
+        line_shader.uniform_float("lineWidth", width)
+        line_shader.uniform_float("color", color)
+        batch.draw(line_shader)
+
+    point_shader.bind()
+    for batch, color, size in batches["points"]:
+        gpu.state.point_size_set(size)
+        point_shader.uniform_float("color", color)
+        batch.draw(point_shader)
+
+    path = _preview["path"]
+    if path is not None and len(path) >= 2:
+        pairs = []
+        for i in range(len(path) - 1):
+            pairs.append(tuple(path[i]))
+            pairs.append(tuple(path[i + 1]))
+        line_shader.bind()
+        line_shader.uniform_float("viewportSize", view_size)
+        line_shader.uniform_float("lineWidth", 3.0)
+        line_shader.uniform_float("color", COL_PREVIEW)
+        batch_for_shader(line_shader, "LINES", {"pos": pairs}).draw(line_shader)
+
+    marks = [p for p in (_preview["snap"], _preview["anchor"]) if p is not None]
+    if marks:
+        point_shader.bind()
+        gpu.state.point_size_set(12.0)
+        point_shader.uniform_float("color", COL_SNAP)
+        batch_for_shader(point_shader, "POINTS",
+                         {"pos": [tuple(m) for m in marks]}).draw(point_shader)
+
+    gpu.state.point_size_set(1.0)
+    gpu.state.depth_test_set("NONE")
+    gpu.state.blend_set("NONE")
+
+
+def enable():
+    global _handle
+    if _handle is None:
+        _handle = bpy.types.SpaceView3D.draw_handler_add(draw, (), "WINDOW", "POST_VIEW")
+    _tag_redraw()
+
+
+def disable():
+    global _handle
+    if _handle is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_handle, "WINDOW")
+        _handle = None
+    _tag_redraw()
+
+
+def register():
+    enable()
+
+
+def unregister():
+    disable()
+    _cache["key"] = None
