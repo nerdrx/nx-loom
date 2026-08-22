@@ -173,4 +173,97 @@ def run():
     ey, iy = _mirror_err(obj3, ax=1)
     out.append(("Y symmetry is exact too", ey == 0.0 and iy["nm"] == 0,
                 f"{ey:.2e}, {iy}"))
+
+    bpy.context.scene.nx_loom.symmetry_axis = "X"
+    out += run_mirror_edits()
+    return out
+
+
+def run_mirror_edits():
+    """The Mirror Hand Edits toggle."""
+    import nx_loom
+    try:
+        nx_loom.register()
+    except Exception:
+        pass
+    out = []
+
+    from nx_loom.core import delta as delta_mod
+    from nx_loom.ops.layout import DELTA_KEY, clean_build
+
+    def build_sym(mirror_edits):
+        src, obj, surf = _setup()
+        g = get_graph(obj)
+        _draw_half(g, surf, "X")
+        set_graph(obj, g)
+        st = bpy.context.scene.nx_loom
+        st.mirror_edits = mirror_edits
+        rebuild_object(obj, bpy.context)
+        return obj
+
+    # capture with symmetry on must not record the symmetrisation itself
+    obj = build_sym(False)
+    clean, prov, _ = clean_build(obj, bpy.context)
+    world = np.array([tuple(obj.matrix_world @ v.co) for v in obj.data.vertices])
+    out.append(("clean_build matches the symmetrised rebuild",
+                clean.shape == world.shape
+                and float(np.abs(clean - world).max()) < 1e-5,
+                f"max {float(np.abs(clean - world).max()):.1e}"
+                if clean.shape == world.shape else "shape mismatch"))
+    bpy.ops.nxloom.capture_edits()
+    out.append(("an untouched symmetric mesh captures nothing",
+                delta_mod.count(delta_mod.load(obj)) == 0,
+                str(delta_mod.count(delta_mod.load(obj)))))
+
+    # off: the edit stays where it was made
+    obj = build_sym(False)
+    mw, mwi = obj.matrix_world, obj.matrix_world.inverted()
+    picked = [i for i, v in enumerate(obj.data.vertices) if (mw @ v.co).x > 0.35][:3]
+    for i in picked:
+        co = mw @ obj.data.vertices[i].co
+        obj.data.vertices[i].co = mwi @ (co * 1.25)
+    bpy.ops.nxloom.capture_edits()
+    n_off = delta_mod.count(delta_mod.load(obj))
+    rebuild_object(obj, bpy.context)
+    err_off, _ = _mirror_err(obj)
+    out.append(("off: only the edited side moves",
+                n_off == len(picked) and err_off > 1e-3,
+                f"{n_off} deltas, mirror error {err_off:.3e}"))
+
+    # on: the edit appears on both halves and the mesh stays exact
+    obj = build_sym(True)
+    mw, mwi = obj.matrix_world, obj.matrix_world.inverted()
+    picked = [i for i, v in enumerate(obj.data.vertices) if (mw @ v.co).x > 0.35][:3]
+    for i in picked:
+        co = mw @ obj.data.vertices[i].co
+        obj.data.vertices[i].co = mwi @ (co * 1.25)
+    bpy.ops.nxloom.capture_edits()
+    n_on = delta_mod.count(delta_mod.load(obj))
+    rebuild_object(obj, bpy.context)
+    err_on, info = _mirror_err(obj)
+    out.append(("on: each edit is stored for both halves",
+                n_on == 2 * len(picked), f"{n_on} deltas from {len(picked)} edits"))
+    out.append(("on: the mesh stays exactly symmetric", err_on == 0.0,
+                f"mirror error {err_on:.3e}"))
+    out.append(("on: and stays clean",
+                info["nm"] == 0 and info["nonquad"] == 0 and info["bnd"] == 0,
+                str(info)))
+
+    # a seam vertex cannot be pushed off the plane, or symmetry breaks
+    obj = build_sym(True)
+    mw, mwi = obj.matrix_world, obj.matrix_world.inverted()
+    seam = [i for i, v in enumerate(obj.data.vertices)
+            if abs((mw @ v.co).x) < 1e-6]
+    if seam:
+        i = seam[0]
+        co = mw @ obj.data.vertices[i].co
+        obj.data.vertices[i].co = mwi @ (co + __import__("mathutils").Vector((0.3, 0, 0.1)))
+        bpy.ops.nxloom.capture_edits()
+        rebuild_object(obj, bpy.context)
+        P = np.array([tuple(obj.matrix_world @ v.co) for v in obj.data.vertices])
+        still_seam = int((np.abs(P[:, 0]) < 1e-6).sum())
+        e2, _ = _mirror_err(obj)
+        out.append(("a seam edit keeps the seam on the plane",
+                    still_seam == len(seam) and e2 == 0.0,
+                    f"{len(seam)} -> {still_seam} seam verts, err {e2:.1e}"))
     return out

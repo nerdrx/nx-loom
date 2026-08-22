@@ -12,14 +12,32 @@ class NXLoomSettings(bpy.types.PropertyGroup):
         description="Dense mesh the layout is pinned to and reprojected onto",
         poll=lambda self, obj: obj.type == "MESH",
     )
+    size_mode: EnumProperty(
+        name="Size By",
+        description="Whether to aim for an edge length or a face budget",
+        items=[
+            ("EDGE", "Edge Length", "Target quad edge length"),
+            ("COUNT", "Face Count", "Aim for a total number of faces — how "
+                                    "game-asset budgets are actually specified"),
+        ],
+        default="EDGE",
+    )
+    target_count: IntProperty(
+        name="Faces",
+        description="Face budget. The exact number is not always reachable — "
+                    "subdivisions are whole numbers — so the closest achievable "
+                    "count is used and reported",
+        default=2000, min=4, soft_max=200000,
+    )
     target_edge: FloatProperty(
-        name="Density",
-        description="Target edge length. One slider re-grids the whole model; "
-                    "the quantizer guarantees every patch still closes",
+        name="Edge Length",
+        description="Target quad edge length — bigger means coarser. One "
+                    "slider re-grids the whole model and the quantizer "
+                    "guarantees every patch still closes",
         default=0.1, min=0.0005, max=10.0, soft_max=1.0, unit="LENGTH",
     )
     relax_iters: IntProperty(
-        name="Relax",
+        name="Smoothing",
         description="Laplacian smoothing passes on patch interiors before "
                     "reprojection. 0 leaves the raw Coons interpolation",
         default=20, min=0, max=200,
@@ -87,6 +105,12 @@ class NXLoomSettings(bpy.types.PropertyGroup):
         description="Nodes within this distance of the mirror plane are "
                     "snapped onto it and shared by both halves",
         default=0.002, min=0.0, max=1.0, precision=4, unit="LENGTH",
+    )
+    mirror_edits: BoolProperty(
+        name="Mirror Hand Edits",
+        description="Copy captured vertex edits across the symmetry plane. "
+                    "Off, an edit stays exactly where you made it",
+        default=False,
     )
     fill_background: BoolProperty(
         name="Fill Background Region",

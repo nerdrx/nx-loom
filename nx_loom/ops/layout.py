@@ -7,7 +7,7 @@ from mathutils import Vector
 
 from ..core import delta as delta_mod
 from ..core import symmetry as sym
-from ..core.build import build, mesh_stats
+from ..core.build import build, mesh_stats, solve_edge_for_count
 from ..core.graph import GRAPH_KEY, LayoutGraph, from_edge_chains, trace_chains
 from ..core.surface import Surface
 
@@ -64,8 +64,14 @@ def rebuild_object(obj, context, report_fn=None):
     )
     project = surface.project if (surface and st.reproject) else None
 
+    edge = st.target_edge
+    solved = None
+    if st.size_mode == "COUNT":
+        edge, solved = solve_edge_for_count(graph, st.target_count,
+                                            st.fill_background)
+
     verts, quads, prov, report = build(
-        graph, target_edge=st.target_edge, project=project,
+        graph, target_edge=edge, project=project,
         relax_iters=st.relax_iters, fill_background=st.fill_background,
     )
 
@@ -73,6 +79,10 @@ def rebuild_object(obj, context, report_fn=None):
         verts, symrep = sym.symmetrize_verts(verts, st.symmetry_axis,
                                              st.symmetry_tolerance)
         report["symmetry"] = symrep
+
+    if solved is not None:
+        report["requested_count"] = st.target_count
+        report["solved_edge"] = edge
 
     deltas = delta_mod.load(obj)
     if deltas["offsets"] and len(verts):
@@ -156,6 +166,7 @@ class NXLOOM_OT_layout_from_selection(bpy.types.Operator):
 
         mesh = bpy.data.meshes.new(f"{src.name}_loom")
         obj = bpy.data.objects.new(f"{src.name}_loom", mesh)
+        obj.show_in_front = True
         context.collection.objects.link(obj)
         set_graph(obj, graph)
         if st.reference is None:
@@ -196,6 +207,9 @@ class NXLOOM_OT_new_layout(bpy.types.Operator):
         mesh = bpy.data.meshes.new(f"{src.name}_loom")
         obj = bpy.data.objects.new(f"{src.name}_loom", mesh)
         obj.matrix_world = src.matrix_world.copy()
+        # The generated mesh sits exactly on the reference surface, so without
+        # this the two z-fight from the first face onwards.
+        obj.show_in_front = True
         context.collection.objects.link(obj)
         set_graph(obj, graph)
         obj["nx_loom_bad_patches"] = []
@@ -230,9 +244,18 @@ def clean_build(obj, context):
         corner_angle=st.corner_angle,
     )
     project = surface.project if (surface and st.reproject) else None
-    verts, _, prov, _ = build(graph, target_edge=st.target_edge, project=project,
+    edge = st.target_edge
+    if st.size_mode == "COUNT":
+        edge, _ = solve_edge_for_count(graph, st.target_count, st.fill_background)
+    verts, _, prov, _ = build(graph, target_edge=edge, project=project,
                               relax_iters=st.relax_iters,
                               fill_background=st.fill_background)
+    # Must match rebuild_object exactly, symmetrisation included. Capture
+    # differences the edited mesh against this, so anything rebuild does and
+    # this does not gets recorded as if the artist had done it by hand.
+    if st.symmetry_axis != "NONE" and len(verts):
+        verts, _ = sym.symmetrize_verts(verts, st.symmetry_axis,
+                                        st.symmetry_tolerance)
     return verts, prov, surface
 
 
@@ -250,6 +273,7 @@ class NXLOOM_OT_capture_edits(bpy.types.Operator):
 
     def execute(self, context):
         obj = active_object(context)
+        st = context.scene.nx_loom
         if obj.mode == "EDIT":
             bpy.ops.object.mode_set(mode="OBJECT")
         clean, prov, surface = clean_build(obj, context)
@@ -269,7 +293,11 @@ class NXLOOM_OT_capture_edits(bpy.types.Operator):
             return {"CANCELLED"}
 
         normal_fn = surface.normal_at if surface else (lambda p: (0.0, 0.0, 1.0))
-        table = delta_mod.capture(clean, edited, prov, normal_fn)
+        mirror = st.symmetry_axis if (st.mirror_edits
+                                      and st.symmetry_axis != "NONE") else None
+        table = delta_mod.capture(clean, edited, prov, normal_fn,
+                                  mirror_axis=mirror,
+                                  seam_tol=st.symmetry_tolerance)
         delta_mod.store(obj, table)
         self.report({"INFO"}, f"{delta_mod.count(table)} edited vert(s) captured")
         return {"FINISHED"}
@@ -368,14 +396,93 @@ class NXLOOM_OT_apply(bpy.types.Operator):
         del obj[GRAPH_KEY]
         if DELTA_KEY in obj:
             del obj[DELTA_KEY]
-        if "nx_loom_bad_patches" in obj:
-            del obj["nx_loom_bad_patches"]
+        for key in ("nx_loom_bad_patches", "nx_loom_background"):
+            if key in obj:
+                del obj[key]
+        attr = obj.data.attributes.get("nx_loom_patch")
+        if attr is not None:
+            obj.data.attributes.remove(attr)
+        obj.show_in_front = False
         self.report({"INFO"}, f"Layout applied — this is a plain mesh now{note}")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_activate_draw_tool(bpy.types.Operator):
+    """Switch to the Loom Draw tool in the toolbar"""
+
+    bl_idname = "nxloom.activate_draw_tool"
+    bl_label = "Draw Arcs"
+
+    def execute(self, context):
+        try:
+            bpy.ops.wm.tool_set_by_id(name="nxloom.draw_tool")
+        except Exception as e:
+            self.report({"WARNING"}, f"Pick Loom Draw in the toolbar ({e})")
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_toggle_reference(bpy.types.Operator):
+    """Show or hide the reference mesh the layout is drawn on"""
+
+    bl_idname = "nxloom.toggle_reference"
+    bl_label = "Toggle Reference"
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
+    def execute(self, context):
+        graph = get_graph(active_object(context))
+        ref = bpy.data.objects.get(graph.reference) if graph else None
+        if ref is None:
+            ref = context.scene.nx_loom.reference
+        if ref is None:
+            self.report({"WARNING"}, "No reference mesh")
+            return {"CANCELLED"}
+        ref.hide_set(not ref.hide_get())
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_frame_problem(bpy.types.Operator):
+    """Move the view to the first patch the solver could not resolve"""
+
+    bl_idname = "nxloom.frame_problem"
+    bl_label = "Show Problem Patch"
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and obj.get("nx_loom_bad_patches"))
+
+    def execute(self, context):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        bad = list(obj.get("nx_loom_bad_patches", []) or [])
+        if graph is None or not bad:
+            return {"CANCELLED"}
+        pid = next((p for p in bad if p in graph.patches), None)
+        if pid is None:
+            self.report({"WARNING"}, "That patch no longer exists — rebuild")
+            return {"CANCELLED"}
+        pts = graph.patch_boundary(pid)
+        if not len(pts):
+            return {"CANCELLED"}
+        centre = Vector(tuple(pts.mean(axis=0)))
+        context.scene.cursor.location = centre
+        rv3d = getattr(context.space_data, "region_3d", None)
+        if rv3d is not None:
+            rv3d.view_location = centre
+        self.report({"INFO"}, f"Patch {pid}: {len(graph.patches[pid].sides)} sides")
         return {"FINISHED"}
 
 
 _CLASSES = (
     NXLOOM_OT_new_layout,
+    NXLOOM_OT_activate_draw_tool,
+    NXLOOM_OT_toggle_reference,
+    NXLOOM_OT_frame_problem,
     NXLOOM_OT_capture_edits,
     NXLOOM_OT_clear_edits,
     NXLOOM_OT_layout_from_selection,
@@ -392,3 +499,5 @@ def register():
 def unregister():
     for c in reversed(_CLASSES):
         bpy.utils.unregister_class(c)
+
+

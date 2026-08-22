@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from .fill import fill_patch
-from .quantize import quantize
+from .quantize import quantize, solve_splits
 from .surface import resample
 from .symmetry import representative
 
@@ -41,6 +41,103 @@ def background_patches(graph):
             if a > smallest * BACKGROUND_MIN_RATIO and a > total * BACKGROUND_MIN_SHARE}
 
 
+def _solve_counts(graph, target_edge, fill_background=False):
+    """Quantise only. Shared by build() and the quad-count estimator."""
+    rep_of = representative(graph)
+    rep_ids = sorted(set(rep_of.values()))
+    lengths = {r: graph.arcs[r].length() for r in rep_ids}
+    locks = {r: graph.arcs[r].n_lock for r in rep_ids if graph.arcs[r].n_lock}
+
+    def rep_sides(pid):
+        return [[rep_of[a] for a in side]
+                for side in graph.patches[pid].arc_sides()]
+
+    counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
+                                list(graph.patches), rep_sides, locks)
+    return {aid: counts_rep[rep_of[aid]] for aid in graph.arcs}, qrep
+
+
+def estimate_quads(graph, target_edge, fill_background=False):
+    """Predicted face count, without filling anything.
+
+    A quad patch of p x q contributes p*q; an n-sided patch split at a[i]
+    contributes sum(a[i] * a[i+1]). Both come straight out of the quantiser, so
+    a face budget can be solved for without ever building geometry.
+    """
+    if not graph.patches:
+        return 0
+    counts, qrep = _solve_counts(graph, target_edge, fill_background)
+    skip = set(qrep["unsatisfied_patches"])
+    if not fill_background:
+        skip |= background_patches(graph)
+
+    total = 0
+    for pid, patch in graph.patches.items():
+        if pid in skip or patch.fill == "hole":
+            continue
+        sides = [sum(counts[a] for a in side) for side in patch.arc_sides()]
+        if len(sides) == 4:
+            total += sides[0] * sides[1]
+        elif len(sides) >= 3:
+            a = solve_splits(sides)
+            if a is None:
+                continue
+            total += int(sum(a[i] * a[(i + 1) % len(a)] for i in range(len(a))))
+    return total
+
+
+def solve_edge_for_count(graph, target_count, fill_background=False,
+                         tol=0.02, max_iter=40):
+    """Target edge length that yields ~target_count faces.
+
+    Bisected in log space on a monotone-ish curve. The count is a step
+    function of the edge length — it can only change in whole subdivisions —
+    so an exact hit is often impossible; the closest achievable count is
+    returned along with the edge that produced it.
+    """
+    if not graph.patches or target_count < 1:
+        return graph.settings.get("target_edge", 0.1), 0
+
+    area = sum(graph.patch_area(pid) for pid in graph.patches)
+    guess = max((area / max(target_count, 1)) ** 0.5, 1e-6)
+
+    lo, hi = guess, guess
+    n_lo = n_hi = estimate_quads(graph, guess, fill_background)
+    for _ in range(24):
+        if n_lo >= target_count:
+            break
+        lo *= 0.7
+        n_lo = estimate_quads(graph, lo, fill_background)
+    for _ in range(24):
+        if n_hi <= target_count:
+            break
+        hi *= 1.4
+        n_hi = estimate_quads(graph, hi, fill_background)
+    if lo > hi:
+        lo, hi = hi, lo
+
+    best = (abs(n_lo - target_count), lo, n_lo)
+    for cand, n in ((hi, n_hi),):
+        if abs(n - target_count) < best[0]:
+            best = (abs(n - target_count), cand, n)
+
+    for _ in range(max_iter):
+        mid = (lo * hi) ** 0.5
+        n = estimate_quads(graph, mid, fill_background)
+        err = abs(n - target_count)
+        if err < best[0]:
+            best = (err, mid, n)
+        if target_count and err <= target_count * tol:
+            break
+        if n > target_count:
+            lo = mid
+        else:
+            hi = mid
+        if hi / max(lo, 1e-12) < 1.0001:
+            break
+    return best[1], best[2]
+
+
 def build(graph, target_edge=None, project=None, relax_iters=20,
           fill_background=False):
     """Returns (verts (N,3), quads, provenance, report).
@@ -56,19 +153,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
     # The mirrored layout has a mirrored constraint system, so solving the
     # reduced system solves both halves at once — and the two sides come out
     # bit-identical rather than merely similar.
-    rep_of = representative(graph)
-    rep_ids = sorted(set(rep_of.values()))
-    lengths = {r: graph.arcs[r].length() for r in rep_ids}
-    locks = {r: graph.arcs[r].n_lock for r in rep_ids if graph.arcs[r].n_lock}
-
-    def rep_sides(pid):
-        return [[rep_of[a] for a in side]
-                for side in graph.patches[pid].arc_sides()]
-
-    counts_rep, qrep = quantize(
-        rep_ids, lengths, target_edge, list(graph.patches), rep_sides, locks,
-    )
-    counts = {aid: counts_rep[rep_of[aid]] for aid in graph.arcs}
+    counts, qrep = _solve_counts(graph, target_edge, fill_background)
     for a in graph.arcs:
         graph.arcs[a].n = counts[a]
 

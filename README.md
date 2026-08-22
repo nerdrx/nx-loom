@@ -41,6 +41,14 @@ and NX Loom generates the mesh. Quad patches get a discrete Coons grid;
 3-, 5- and 6-sided patches (where the poles live) get split templates. Interiors
 relax and reproject onto the reference.
 
+### A face budget, not just an edge length
+
+Game work is specified in faces, not millimetres. `Size By: Face Count` solves
+the edge length for a target count — cheaply, because the quantiser can predict
+the face count without filling any geometry. Subdivisions are whole numbers so
+an exact hit is often impossible; the closest reachable count is used and the
+panel tells you how far off budget it landed rather than pretending.
+
 ### Symmetry, on the layout rather than the mesh
 
 Set an axis and draw one half. The mirror is part of the *document*, so both
@@ -87,14 +95,14 @@ solve.
 
 ## Status
 
-**v0.6.0 — symmetric, drawn, edited, applied with your data intact.**
+**v0.7.0 — symmetric, drawn, edited, budgeted, applied with your data intact.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
 rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 140 headless
+layouts — including a layout *drawn from nothing* on a sphere. 164 headless
 checks plus 8 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
@@ -129,8 +137,9 @@ dropped and named in the report — never fudged into the mesh.
    Drawing a loop on a closed mesh bounds two regions: the bit you drew round,
    and everything else. The leftover is detected and left alone rather than
    covered in geometry (there's a checkbox if you did want it filled).
-4. Adjust **Density**. Any patch the solver refuses is drawn **red** in the
-   viewport and counted in the panel, so a problem is visible while you draw.
+4. Set the size: an **edge length**, or a **face budget** if you are working to
+   one. Any patch the solver refuses is drawn **red** in the viewport, counted
+   in the panel, and *Show Problem Patch* takes you to it.
 5. Need a vertex somewhere the solver would not put it? Move it in Edit Mode
    and hit **Capture Edits**. The edit is stored against the layout, not the
    vertex index — change the density afterwards and it is still there.

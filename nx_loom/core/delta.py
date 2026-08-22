@@ -82,7 +82,58 @@ def dims_of(provenance):
     return dims
 
 
-def capture(clean, edited, provenance, normals, tol=1e-6):
+def mirror_offsets(clean, edited, provenance, normals, axis, seam_tol,
+                   offsets, radius=None):
+    """Copy each captured edit onto the vertex's mirror partner.
+
+    Stored explicitly rather than re-symmetrising after the fact, so an edit
+    made on *either* half propagates to the other instead of the generated side
+    silently losing it.
+
+    A vertex sitting on the plane is its own partner: its displacement along
+    the mirror axis is dropped, because any other value would push the seam off
+    the plane and break the symmetry everything else just guaranteed.
+    """
+    from .symmetry import AXIS_INDEX
+
+    ax = AXIS_INDEX[axis]
+    clean = np.asarray(clean, dtype=float)
+    edited = np.asarray(edited, dtype=float)
+    by_key = {key_of(tag): i for i, tag in enumerate(provenance)}
+    span = float(np.linalg.norm(clean.max(axis=0) - clean.min(axis=0))) \
+        if len(clean) else 1.0
+    radius = radius if radius is not None else max(span * 0.02, seam_tol * 4.0)
+
+    added = 0
+    for key in list(offsets):
+        i = by_key.get(key)
+        if i is None:
+            continue
+        d = edited[i] - clean[i]
+
+        if abs(clean[i][ax]) <= seam_tol:
+            d = d.copy()
+            d[ax] = 0.0
+            t, b, n = frame(_normal_of(normals, i, clean[i]))
+            offsets[key] = [float(d @ t), float(d @ b), float(d @ n)]
+            continue
+
+        target = clean[i].copy()
+        target[ax] *= -1.0
+        dist = np.linalg.norm(clean - target, axis=1)
+        j = int(np.argmin(dist))
+        if j == i or dist[j] > radius:
+            continue
+        dm = d.copy()
+        dm[ax] *= -1.0
+        t, b, n = frame(_normal_of(normals, j, clean[j]))
+        offsets[key_of(provenance[j])] = [float(dm @ t), float(dm @ b), float(dm @ n)]
+        added += 1
+    return added
+
+
+def capture(clean, edited, provenance, normals, tol=1e-6,
+            mirror_axis=None, seam_tol=1e-3):
     """Difference two same-length vertex arrays into a delta table.
 
     Returns {"offsets": {...}, "dims": {...}} — the dims are the resolution the
@@ -100,6 +151,10 @@ def capture(clean, edited, provenance, normals, tol=1e-6):
             continue
         t, b, n = frame(_normal_of(normals, i, clean[i]))
         out[key_of(tag)] = [float(d @ t), float(d @ b), float(d @ n)]
+
+    if mirror_axis and mirror_axis != "NONE":
+        mirror_offsets(clean, edited, provenance, normals, mirror_axis,
+                       seam_tol, out)
     return {"offsets": out, "dims": dims_of(provenance)}
 
 

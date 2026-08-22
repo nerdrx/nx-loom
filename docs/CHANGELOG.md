@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.7.0 — unreleased
+
+Mirrored hand edits, a face budget, and a usability pass.
+
+**Mirror Hand Edits** (toggle, off by default). Captured vertex edits are
+copied across the symmetry plane, so an edit made on *either* half propagates
+instead of the generated side silently losing it. A vertex on the seam is its
+own partner, so its displacement along the mirror axis is dropped — any other
+value would push the seam off the plane.
+
+**Face budget.** `Size By: Face Count` targets a total face count instead of an
+edge length, which is how game-asset budgets are actually specified. The
+quantiser already predicts the count without filling anything, so the edge
+length is solved by bisection over an exact estimate. An exact hit is often
+impossible — subdivisions are whole numbers — so the closest reachable count is
+used and the panel reports how far off budget it landed.
+
+**Fixed: two sidebar buttons could not work.** `Toggle Hole` and `Draw Arc` are
+invoke-operators that raycast from the mouse position; pressed from the
+sidebar, the cursor is over the sidebar, so they picked nothing. They live in
+the tool keymap now, and the panel points at the tool instead of pretending to
+be it.
+
+**Fixed: Apply left bookkeeping behind** — the `nx_loom_patch` face attribute
+and the background/problem caches survived onto a mesh that is meant to be
+plain.
+
+Also:
+
+- Generated objects draw **in front**, so they stop z-fighting the surface they
+  sit on the moment you make one.
+- The panel is collapsible sub-panels rather than seven stacked boxes.
+- The reference shown is the one the *layout* uses, not the scene fallback, and
+  says when it is falling back.
+- `Density` is now honestly labelled **Edge Length** — it is a length, and
+  turning it up makes the mesh coarser.
+- `Show Problem Patch` moves the view to the first unresolved patch instead of
+  leaving you to hunt for it. `Hide Reference` toggles the sculpt.
+- `clean_build` now symmetrises exactly as `rebuild` does. It did not, so
+  capturing edits with symmetry on recorded the symmetrisation itself as if it
+  were a hand edit.
+
+164 headless checks + 8 GUI checks.
+
+
 ## 0.6.0 — unreleased
 
 Symmetry, done at the layout rather than at the mesh. Draw one half, get both;
