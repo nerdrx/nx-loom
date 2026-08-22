@@ -1,0 +1,46 @@
+# Changelog
+
+## 0.1.0 — unreleased
+
+First cut: the layout graph, the quantizer, patch fill, and the rebuild
+pipeline. Authoring is bootstrapped from edge selection; the modal draw tool
+and the suggestion lanes (SPEC §7) are not written yet.
+
+- Layout graph (nodes / arcs / patches) stored as JSON on the object, with
+  barycentric pins so a layout survives edits to the reference sculpt.
+- Patch discovery by planar-graph face traversal. The rotation system around a
+  node comes from a PCA of the incident arc directions, with the reference
+  normal used only to fix its sign — a normal-based ordering is ambiguous on a
+  sharp rim and fuses patches that should be separate.
+- Corner detection on valence **or** turn angle. Valence alone treats the
+  corner of a plain grid (degree 2, 90°) as mid-side and hands the filler a
+  triangle where a quad belongs.
+- Global integer quantizer. All patch constraints are derived at runtime from
+  one small system rather than hard-coded per arity, so the familiar
+  "opposite sides match" quad rule and the parity rules for 3-, 5- and 6-sided
+  patches come out of the same place.
+- Parity is solved over GF(2) in one pass, not hill-climbed. On a closed
+  triangulated surface every arc is shared by two patches, so a local search
+  stalls with most patches still odd — measured: 30 of 80 patches unsolvable
+  by greedy, 0 after the linear solve.
+- Per-arc floors: a single-arc side of a non-quad patch needs at least 2
+  segments, and every pass respects that. Without it the sphere's pole fans
+  come out unfilled at coarse densities.
+- Fill: discrete Coons for quads, half-sum split templates for everything else,
+  Laplacian relaxation and reprojection onto the reference. Boundary vertices
+  are owned by arcs, so patches weld by construction — there is no distance
+  merge anywhere in the pipeline.
+- A patch that cannot be quantized, split or filled without going non-manifold
+  is dropped and named in the report. It is never fudged into the mesh.
+- 65 headless checks (`tests/run_all.sh`), green on Blender 5.2.0.
+
+Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
+surface deviation) across every density tested on icosphere, UV sphere and
+cylinder layouts.
+
+Known limits, honestly: a layout taken from *every* edge of a dense mesh (the
+Suzanne case) produces large many-sided patches the filler refuses — that is
+the automatic path this addon deliberately is not, and the manual workflow does
+not hit it. The quantizer's repair is a heuristic, not the min-cost-flow ILP of
+Campen/Bommes/Kobbelt 2015. There is no modal draw tool yet, no delta layer,
+and no data transfer on Apply.

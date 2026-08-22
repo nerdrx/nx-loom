@@ -1,0 +1,192 @@
+"""Operators: author a layout, rebuild it, apply it."""
+
+import bmesh
+import bpy
+from mathutils import Vector
+
+from ..core.build import build, mesh_stats
+from ..core.graph import GRAPH_KEY, LayoutGraph, from_edge_chains, trace_chains
+from ..core.surface import Surface
+
+DELTA_KEY = "nx_loom_delta"
+
+
+def get_graph(obj):
+    text = obj.get(GRAPH_KEY) if obj else None
+    return LayoutGraph.from_json(text) if text else None
+
+
+def set_graph(obj, graph):
+    obj[GRAPH_KEY] = graph.to_json()
+
+
+def _surface_for(graph, context):
+    name = graph.reference
+    ref = bpy.data.objects.get(name) if name else None
+    if ref is None:
+        ref = context.scene.nx_loom.reference
+    return Surface(ref, context.evaluated_depsgraph_get()) if ref else None
+
+
+def rebuild_object(obj, context, report_fn=None):
+    """Regenerate obj's mesh from its layout graph. Returns the report."""
+    graph = get_graph(obj)
+    if graph is None:
+        return None
+    st = context.scene.nx_loom
+    surface = _surface_for(graph, context)
+    if surface is not None:
+        graph.refresh_positions(surface)
+    project = surface.project if (surface and st.reproject) else None
+
+    verts, quads, report = build(
+        graph, target_edge=st.target_edge, project=project, relax_iters=st.relax_iters
+    )
+    report.update(mesh_stats(verts, quads))
+
+    mw_inv = obj.matrix_world.inverted()
+    local = [tuple(mw_inv @ Vector(tuple(v))) for v in verts]
+
+    mesh = obj.data
+    mesh.clear_geometry()
+    mesh.from_pydata(local, [], quads)
+    mesh.update()
+    set_graph(obj, graph)
+    if report_fn:
+        report_fn(report)
+    return report
+
+
+class NXLOOM_OT_layout_from_selection(bpy.types.Operator):
+    """Turn the selected edges into a layout and generate a mesh from it"""
+
+    bl_idname = "nxloom.layout_from_selection"
+    bl_label = "Layout from Selected Edges"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and obj.type == "MESH" and obj.mode == "EDIT"
+
+    def execute(self, context):
+        src = context.active_object
+        bm = bmesh.from_edit_mesh(src.data)
+        sel = [e for e in bm.edges if e.select]
+        if not sel:
+            self.report({"ERROR"}, "No edges selected")
+            return {"CANCELLED"}
+
+        mw = src.matrix_world
+        used = sorted({v.index for e in sel for v in e.verts})
+        remap = {vi: i for i, vi in enumerate(used)}
+        bm.verts.ensure_lookup_table()
+        pts = [tuple(mw @ bm.verts[vi].co) for vi in used]
+        edges = [(remap[e.verts[0].index], remap[e.verts[1].index]) for e in sel]
+
+        st = context.scene.nx_loom
+        chains = trace_chains(edges, pts, corner_angle=st.corner_angle)
+        graph = from_edge_chains(pts, chains, reference=src.name)
+        graph.settings["target_edge"] = st.target_edge
+
+        bpy.ops.object.mode_set(mode="OBJECT")
+        surface = Surface(src, context.evaluated_depsgraph_get())
+        for node in graph.nodes.values():
+            node.pin = surface.pin(node.co)
+        for arc in graph.arcs.values():
+            arc.pins = [surface.pin(p) for p in arc.path]
+
+        drep = graph.discover_patches(
+            normal_at=surface.normal_at, corner_angle=st.corner_angle
+        )
+        if not graph.patches:
+            self.report({"ERROR"},
+                        f"No patches found — the selection must enclose areas "
+                        f"({drep['cycles']} cycles, {drep['rejected']})")
+            return {"CANCELLED"}
+
+        mesh = bpy.data.meshes.new(f"{src.name}_loom")
+        obj = bpy.data.objects.new(f"{src.name}_loom", mesh)
+        context.collection.objects.link(obj)
+        set_graph(obj, graph)
+        if st.reference is None:
+            st.reference = src
+
+        rep = rebuild_object(obj, context)
+        for o in context.selected_objects:
+            o.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+
+        self.report(
+            {"INFO"},
+            f"{len(graph.patches)} patches, {rep['quads']} quads, "
+            f"{len(graph.arcs)} arcs" +
+            (f" — {len(rep['failed_patches'])} unfilled" if rep["failed_patches"] else "")
+        )
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_rebuild(bpy.types.Operator):
+    """Regenerate the mesh from its layout graph"""
+
+    bl_idname = "nxloom.rebuild"
+    bl_label = "Rebuild"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and GRAPH_KEY in obj
+
+    def execute(self, context):
+        rep = rebuild_object(context.active_object, context)
+        if rep is None:
+            self.report({"ERROR"}, "No layout on this object")
+            return {"CANCELLED"}
+        msg = f"{rep['quads']} quads, {rep['verts']} verts"
+        if rep["failed_patches"] or rep["unsatisfied_patches"]:
+            msg += (f" — {len(rep['unsatisfied_patches'])} unquantized, "
+                    f"{len(rep['failed_patches'])} unfilled")
+            self.report({"WARNING"}, msg)
+        else:
+            self.report({"INFO"}, msg)
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_apply(bpy.types.Operator):
+    """Drop the layout and leave an ordinary mesh"""
+
+    bl_idname = "nxloom.apply"
+    bl_label = "Apply"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and GRAPH_KEY in obj
+
+    def execute(self, context):
+        obj = context.active_object
+        del obj[GRAPH_KEY]
+        if DELTA_KEY in obj:
+            del obj[DELTA_KEY]
+        self.report({"INFO"}, "Layout applied — this is a plain mesh now")
+        return {"FINISHED"}
+
+
+_CLASSES = (
+    NXLOOM_OT_layout_from_selection,
+    NXLOOM_OT_rebuild,
+    NXLOOM_OT_apply,
+)
+
+
+def register():
+    for c in _CLASSES:
+        bpy.utils.register_class(c)
+
+
+def unregister():
+    for c in reversed(_CLASSES):
+        bpy.utils.unregister_class(c)

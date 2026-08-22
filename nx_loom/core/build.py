@@ -1,0 +1,136 @@
+"""Graph -> mesh. The rebuild pipeline of SPEC §4.
+
+Arc vertices are instantiated exactly once and both neighbouring patches index
+into them, so patches are welded by construction — there is no distance merge
+anywhere in this file, and there must never be one.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from .fill import fill_patch
+from .quantize import quantize
+from .surface import resample
+
+
+def build(graph, target_edge=None, project=None, relax_iters=20):
+    """Returns (verts (N,3), quads, report)."""
+    target_edge = target_edge or graph.settings.get("target_edge", 0.1)
+    arc_ids = list(graph.arcs)
+    lengths = {a: graph.arcs[a].length() for a in arc_ids}
+    locks = {a: graph.arcs[a].n_lock for a in arc_ids if graph.arcs[a].n_lock}
+
+    counts, qrep = quantize(
+        arc_ids, lengths, target_edge,
+        list(graph.patches), lambda p: graph.patches[p].arc_sides(), locks,
+    )
+    for a in arc_ids:
+        graph.arcs[a].n = counts[a]
+
+    verts = []
+    node_vert = {}
+
+    def add(pt):
+        verts.append(np.asarray(pt, dtype=float))
+        return len(verts) - 1
+
+    for nid, node in graph.nodes.items():
+        node_vert[nid] = add(node.co)
+
+    # arc vertices: endpoints are the shared node vertices, interior is new
+    arc_verts = {}
+    for aid in arc_ids:
+        arc = graph.arcs[aid]
+        pts = resample(arc.path, counts[aid], project=project)
+        ids = [node_vert[arc.a]]
+        for k in range(1, counts[aid]):
+            ids.append(add(pts[k]))
+        ids.append(node_vert[arc.b])
+        verts[ids[0]] = np.asarray(graph.nodes[arc.a].co, dtype=float)
+        verts[ids[-1]] = np.asarray(graph.nodes[arc.b].co, dtype=float)
+        arc_verts[aid] = ids
+
+    quads = []
+    failed = []
+    for pid, patch in graph.patches.items():
+        if pid in qrep["unsatisfied_patches"]:
+            failed.append((pid, "unquantized"))
+            continue
+
+        side_ids, side_pts = [], []
+        for side in patch.sides:
+            ids = []
+            for aid, reversed_ in side:
+                seq = arc_verts[aid][::-1] if reversed_ else arc_verts[aid]
+                ids.extend(seq if not ids else seq[1:])
+            side_ids.append(ids)
+            side_pts.append([verts[i] for i in ids])
+
+        res = fill_patch(side_pts, relax_iters=relax_iters, project=project)
+        if res is None:
+            failed.append((pid, "no valid split"))
+            continue
+        loc_verts, loc_quads, slots = res
+
+        remap = {}
+        for (_, si, k), loc in slots.items():
+            remap[loc] = side_ids[si][k]
+        for loc in range(len(loc_verts)):
+            if loc not in remap:
+                remap[loc] = add(loc_verts[loc])
+        patch_quads = [tuple(remap[i] for i in q) for q in loc_quads]
+        if _would_be_nonmanifold(quads, patch_quads):
+            # A patch whose fill collides with an already-placed one means the
+            # layout was mis-traversed. Emitting it would hand the artist a
+            # broken mesh that looks fine until they subdivide; refusing it and
+            # naming the patch is the honest failure.
+            failed.append((pid, "non-manifold"))
+            continue
+        quads.extend(patch_quads)
+
+    used = {i for q in quads for i in q}
+    keep = sorted(used)
+    compact = {old: new for new, old in enumerate(keep)}
+    out_verts = np.array([verts[i] for i in keep]) if keep else np.zeros((0, 3))
+    out_quads = [tuple(compact[i] for i in q) for q in quads]
+
+    report = dict(qrep)
+    report.update({
+        "verts": len(out_verts),
+        "quads": len(out_quads),
+        "failed_patches": failed,
+        "dropped_verts": len(verts) - len(out_verts),
+        "target_edge": target_edge,
+    })
+    return out_verts, out_quads, report
+
+
+def _would_be_nonmanifold(existing, incoming):
+    cnt = {}
+    for q in list(existing) + list(incoming):
+        for k in range(4):
+            e = (q[k], q[(k + 1) % 4])
+            e = e if e[0] < e[1] else (e[1], e[0])
+            cnt[e] = cnt.get(e, 0) + 1
+            if cnt[e] > 2:
+                return True
+    return False
+
+
+def mesh_stats(verts, quads):
+    """Cheap structural sanity: shared-edge counts and non-manifold detection."""
+    cnt = {}
+    for q in quads:
+        for k in range(4):
+            e = (q[k], q[(k + 1) % 4])
+            e = e if e[0] < e[1] else (e[1], e[0])
+            cnt[e] = cnt.get(e, 0) + 1
+    return {
+        "verts": len(verts),
+        "quads": len(quads),
+        "edges": len(cnt),
+        "boundary_edges": sum(1 for c in cnt.values() if c == 1),
+        "nonmanifold_edges": sum(1 for c in cnt.values() if c > 2),
+        "euler": len(verts) - len(cnt) + len(quads),
+    }
