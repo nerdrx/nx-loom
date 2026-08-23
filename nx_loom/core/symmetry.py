@@ -201,12 +201,25 @@ def sync(graph, axis, tol=1e-4, surface=None):
     except ImportError:
         pass
 
+    span_all = 0.0
+    if soup_pts:
+        allpts = soup
+        span_all = float(np.linalg.norm(allpts.max(axis=0)
+                                        - allpts.min(axis=0)))
+
     def _covered(m_path, skip_id):
         if not len(soup):
             return False
         probes = m_path[:: max(len(m_path) // 5, 1)]
-        reach = max(tol, 0.3 * float(np.linalg.norm(
-            np.diff(m_path, axis=0), axis=1).sum()))
+        # Reach scales with the arc but is CAPPED at ~2% of the layout span:
+        # hand-drawn counterparts differ by centimetres, and an uncapped
+        # fraction-of-length reach made long arcs claim coverage over clearly
+        # separate parallels — accepted suggestions near the seam ended up
+        # unpaired because their mirrors were "covered" by themselves.
+        reach = max(tol, min(
+            0.3 * float(np.linalg.norm(np.diff(m_path, axis=0),
+                                       axis=1).sum()),
+            max(span_all * 0.02, tol * 4.0)))
         if kd is not None:
             for probe in probes:
                 ok = False

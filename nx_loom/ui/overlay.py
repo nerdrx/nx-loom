@@ -242,18 +242,28 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
                 (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
                  COL_SEAM_CURVE, 1.4))
 
-    # proposed arcs render as ghosts — visibly not yet part of the document
+    # proposed arcs render as ghosts — visibly not yet part of the document.
+    # With symmetry on, proposals are solved one-sided and displayed with
+    # their mirror image, matching what accepting them will produce.
+    from ..core.symmetry import AXIS_INDEX
+    mirror_ax = AXIS_INDEX.get(axis) if axis != "NONE" else None
     for flat in (graph.settings.get("suggestions") or []):
         pts = np.asarray(flat, dtype=float).reshape(-1, 3)
         if len(pts) < 2:
             continue
-        pairs2 = []
-        for i in range(len(pts) - 1):
-            pairs2.append(tuple(pts[i]))
-            pairs2.append(tuple(pts[i + 1]))
-        batches["lines"].append(
-            (batch_for_shader(line_shader, "LINES", {"pos": pairs2}),
-             COL_SUGGEST, 1.8))
+        copies = [pts]
+        if mirror_ax is not None:
+            m = pts.copy()
+            m[:, mirror_ax] *= -1.0
+            copies.append(m)
+        for cp in copies:
+            pairs2 = []
+            for i in range(len(cp) - 1):
+                pairs2.append(tuple(cp[i]))
+                pairs2.append(tuple(cp[i + 1]))
+            batches["lines"].append(
+                (batch_for_shader(line_shader, "LINES", {"pos": pairs2}),
+                 COL_SUGGEST, 1.8))
 
     palette = dict(COL_ARC)
     palette["pinned"] = COL_PINNED

@@ -126,13 +126,14 @@ def run():
     g = get_graph(obj)
     left = unpaired_arcs(g, "X", st.symmetry_tolerance)
     out.append(("afterwards nothing is unpaired", len(left) == 0, str(len(left))))
-    n_auth_pos = sum(1 for a in g.arcs.values()
+    n_auth_off = sum(1 for a in g.arcs.values()
                      if a.mirror_of is None
-                     and np.asarray(a.path)[:, 0].mean() > st.symmetry_tolerance)
+                     and abs(np.asarray(a.path)[:, 0].mean())
+                     > st.symmetry_tolerance)
     n_mir = sum(1 for a in g.arcs.values() if a.mirror_of is not None)
     out.append(("the kept side is now truly mirrored",
-                n_mir == n_auth_pos and n_mir >= 10,
-                f"{n_auth_pos} authored+ vs {n_mir} mirrored"))
+                n_mir == n_auth_off and n_mir >= 10,
+                f"{n_auth_off} authored off-plane vs {n_mir} mirrored"))
 
     P = np.array([tuple(obj.matrix_world @ v.co) for v in obj.data.vertices])
     if len(P):

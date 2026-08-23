@@ -1,6 +1,35 @@
 # Changelog
 
-## 0.26.0 — unreleased
+## 0.26.1
+
+**The suggestion lane survives contact with a real avatar.** Field report from
+an NX-Dinasty session: trace spaghetti knotted between the toes, meandering
+lines wandering the torso, and — with symmetry on — proposals that ignored the
+mirror entirely.
+
+- **Tracing is connectivity-constrained now.** The tracer walks the actual
+  face adjacency of the proxy instead of snapping to the globally nearest
+  face, so a trace can never teleport across the gap between two toes (or any
+  two disconnected shells). If it loses the surface, it ends — under test with
+  twin icospheres: 22 traces, 0 hops.
+- **The proxy is Taubin-smoothed before the field solve**, singularities are
+  clustered before seeding, short scraps are dropped, and traces stop at 80%
+  of the sculpt's span instead of wandering forever. High-detail regions stop
+  breeding singularity storms.
+- **Symmetry-aware suggesting.** With a mirror axis set, the field is solved
+  on the kept half only, ghosts are drawn mirrored so you see the real
+  outcome, and Accept commits through the standard seam machinery — accepted
+  arcs come out paired, zero unpaired. Proposals hugging the seam band are
+  clipped away: that line belongs to the seam curve, and its near-coincident
+  mirror image only bred unpaired-arc warnings.
+- The mirror-coverage guard's reach is now capped at ~2% of the layout span.
+  It exists to avoid doubling roughly-mirrored *hand-drawn* geometry; the
+  uncapped fraction-of-length reach let long arcs claim coverage over clearly
+  separate parallels.
+
+Suite: 411 headless + 16 GUI checks, 122-layout sweep clean.
+
+## 0.26.0
 
 **The organic suggestion lane** — promised since 0.1.0, and the lane chosen
 first back when the project began.

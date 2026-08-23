@@ -189,14 +189,36 @@ def singularities(tris, theta, frames, pairs):
     return out
 
 
+def face_neighbors(tris):
+    """1-ring face adjacency through shared vertices (robust at fans)."""
+    by_vert = {}
+    for f, tri in enumerate(tris):
+        for v in tri:
+            by_vert.setdefault(int(v), []).append(f)
+    nbrs = [set() for _ in range(len(tris))]
+    for faces in by_vert.values():
+        for f in faces:
+            nbrs[f].update(faces)
+    return [np.fromiter(x, dtype=int) for x in nbrs]
+
+
 def trace(verts, tris, theta, frames, start_face, direction, step, max_len,
-          stop_fn=None):
-    """March a streamline of the field from a point until something stops it."""
+          stop_fn=None, nbrs=None):
+    """March a streamline of the field until something stops it.
+
+    Stepping is CONNECTIVITY-CONSTRAINED: the next face is searched only among
+    the current face's neighbourhood. A global nearest-face search teleports
+    across gaps on thin features — between two toes, between fingers — and a
+    trace that jumps through air turns a foot into a knot of floating lines.
+    Losing the surface locally ends the trace instead.
+    """
     e1, e2, n = frames
     tri_centers = verts[tris].mean(axis=1)
-    # crude spatial stepping: move along the field direction, re-find the
-    # nearest face, re-align to its nearest branch — robust enough for a
-    # first-draft suggestion, and honest about being approximate
+    tri_size = float(np.median(np.linalg.norm(
+        verts[tris[:, 1]] - verts[tris[:, 0]], axis=1)))
+    if nbrs is None:
+        nbrs = face_neighbors(tris)
+
     p = tri_centers[start_face].copy()
     d = direction / max(np.linalg.norm(direction), 1e-12)
     pts = [p.copy()]
@@ -213,8 +235,14 @@ def trace(verts, tris, theta, frames, start_face, direction, step, max_len,
                 bestdot, best = dot, cand
         d = best
         p = p + d * step
-        # snap back to the surface: nearest face centre then project on plane
-        f = int(np.argmin(np.linalg.norm(tri_centers - p, axis=1)))
+        # candidate faces: the local ring, plus their ring (two hops)
+        ring = nbrs[f]
+        cand_faces = np.unique(np.concatenate([nbrs[g] for g in ring]))
+        dists = np.linalg.norm(tri_centers[cand_faces] - p, axis=1)
+        j = int(np.argmin(dists))
+        if float(dists[j]) > max(step, tri_size) * 2.5:
+            break                     # lost the surface — end, do not teleport
+        f = int(cand_faces[j])
         p = p - n[f] * float(np.dot(p - tri_centers[f], n[f]))
         pts.append(p.copy())
         travelled += step
@@ -223,27 +251,71 @@ def trace(verts, tris, theta, frames, start_face, direction, step, max_len,
     return np.asarray(pts)
 
 
-def suggest(verts, tris, spacing=None, max_traces=64):
-    """Separatrix suggestions. -> (polylines, singular_points)."""
+def smooth_proxy(verts, tris, iters=6):
+    """Taubin-style smoothing of the proxy before field solving.
+
+    A decimated sculpt keeps every crease and nub of the toes; the field
+    inherits that chaos as singularity storms. The suggestions are about the
+    broad flow, not the nubs, so the field deserves a calmer surface than the
+    render does. Taubin's shrink/expand pair keeps the volume from collapsing.
+    """
+    verts = np.asarray(verts, dtype=float).copy()
+    tris = np.asarray(tris, dtype=int)
+    nbr = {}
+    for tri in tris:
+        for k in range(3):
+            a, b = int(tri[k]), int(tri[(k + 1) % 3])
+            nbr.setdefault(a, set()).add(b)
+            nbr.setdefault(b, set()).add(a)
+    idx = [np.fromiter(nbr.get(i, {i}), dtype=int) for i in range(len(verts))]
+    for _ in range(iters):
+        for lam in (0.5, -0.53):
+            mean = np.array([verts[j].mean(axis=0) for j in idx])
+            verts = verts + lam * (mean - verts)
+    return verts
+
+
+def _cluster(points, radius):
+    """Greedy clustering; returns representative indices."""
+    reps = []
+    for i, p in enumerate(points):
+        if all(np.linalg.norm(points[r] - p) > radius for r in reps):
+            reps.append(i)
+    return reps
+
+
+def suggest(verts, tris, spacing=None, max_traces=48, presmooth=True):
+    """Separatrix suggestions. -> (polylines, singular_points).
+
+    Quality gates, learned from a real avatar: singularities cluster in
+    high-detail areas (toes), so only cluster representatives spawn traces;
+    traces shorter than a few steps are dropped; and the connectivity-
+    constrained tracer ends a trace rather than jumping between shells.
+    """
     verts = np.asarray(verts, dtype=float)
     tris = np.asarray(tris, dtype=int)
-    theta, frames, pairs = smooth_field(verts, tris)
+    field_verts = smooth_proxy(verts, tris) if presmooth else verts
+    theta, frames, pairs = smooth_field(field_verts, tris)
     sing = singularities(tris, theta, frames, pairs)
     e1, e2, n = frames
 
     span = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
     step = span * 0.02
-    max_len = span * 1.5
+    max_len = span * 0.8
     keep_out = span * 0.04
+    min_pts = 8
 
-    sing_pts = verts[list(sing.keys())] if sing else np.zeros((0, 3))
-    polylines = []
+    sing_ids = list(sing.keys())
+    sing_pts = verts[sing_ids] if sing_ids else np.zeros((0, 3))
+    reps = _cluster(sing_pts, keep_out) if len(sing_pts) else []
+    nbrs = face_neighbors(tris)
 
     vert_faces = {}
     for f, tri in enumerate(tris):
         for v in tri:
             vert_faces.setdefault(int(v), []).append(f)
 
+    polylines = []
     laid = []
 
     def stop_fn(p, travelled):
@@ -257,9 +329,10 @@ def suggest(verts, tris, spacing=None, max_traces=64):
                 return True
         return False
 
-    for v in list(sing.keys()):
+    for r in reps:
         if len(polylines) >= max_traces:
             break
+        v = sing_ids[r]
         f0 = vert_faces[v][0]
         base = theta[f0]
         for k in range(4):
@@ -267,10 +340,10 @@ def suggest(verts, tris, spacing=None, max_traces=64):
                 break
             d0 = (np.cos(base + k * np.pi / 2) * e1[f0]
                   + np.sin(base + k * np.pi / 2) * e2[f0])
-            poly = trace(verts, tris, theta, frames, f0, d0, step, max_len,
-                         stop_fn)
-            if len(poly) >= 4:
-                poly[0] = verts[v]
+            poly = trace(field_verts, tris, theta, frames, f0, d0, step,
+                         max_len, stop_fn, nbrs=nbrs)
+            if len(poly) >= min_pts:
+                poly[0] = field_verts[v]
                 polylines.append(poly)
                 laid.append(poly)
-    return polylines, verts[list(sing.keys())] if sing else np.zeros((0, 3))
+    return polylines, sing_pts

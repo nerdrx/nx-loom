@@ -63,6 +63,12 @@ def _seam_plane(context, point):
     if st.symmetry_axis == "NONE" or point is None \
             or not getattr(st, "seam_snap", True):
         return None
+    if getattr(context, "region", None) is None \
+            or getattr(getattr(context, "space_data", None),
+                       "region_3d", None) is None:
+        # no viewport, no pixels — callers with a geometric scale build
+        # their own plane
+        return None
     from ..core.symmetry import AXIS_INDEX
     reach = pixel_radius_world(context.region, context.space_data.region_3d,
                                point, st.snap_pixels)

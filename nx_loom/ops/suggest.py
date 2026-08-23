@@ -9,7 +9,7 @@ import numpy as np
 from ..core.graph import GRAPH_KEY
 from ..core.suggest import suggest
 from ..ui import overlay
-from .draw import _surface_of, commit_path, refresh, _seam_plane
+from .draw import _surface_of, commit_path, refresh
 from .layout import active_object, get_graph, set_graph
 
 PROXY_FACES = 9000
@@ -73,7 +73,50 @@ class NXLOOM_OT_suggest(bpy.types.Operator):
             self.report({"ERROR"}, "Could not read the reference")
             return {"CANCELLED"}
         verts, tris = proxy
+
+        st = context.scene.nx_loom
+        if st.symmetry_axis != "NONE":
+            # solve on ONE half only: the field and the tracer are numerical
+            # and their output is never mirror-exact, so a full-body solve
+            # yields visibly asymmetric proposals with symmetry on. One-sided
+            # proposals are what the rest of the pipeline expects anyway —
+            # accepted arcs get mirrored by sync like anything authored.
+            from ..core.symmetry import AXIS_INDEX
+            ax = AXIS_INDEX[st.symmetry_axis]
+            cent = verts[tris].mean(axis=1)[:, ax]
+            keep = cent >= -st.symmetry_tolerance
+            tris = tris[keep]
+            used = np.unique(tris)
+            remap = np.full(len(verts), -1, dtype=int)
+            remap[used] = np.arange(len(used))
+            verts = verts[used]
+            tris = remap[tris]
+
         polylines, sing = suggest(verts, tris)
+
+        if st.symmetry_axis != "NONE" and polylines:
+            # clip proposals out of the seam band: a trace hugging the mirror
+            # line proposes nothing the seam does not already own, and its
+            # near-coincident mirror image only breeds unpaired-arc warnings
+            from ..core.symmetry import AXIS_INDEX
+            ax = AXIS_INDEX[st.symmetry_axis]
+            span = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
+            band = max(st.symmetry_tolerance * 4.0, span * 0.02)
+            clipped = []
+            for poly in polylines:
+                mask = poly[:, ax] >= band
+                i = 0
+                while i < len(poly):
+                    if not mask[i]:
+                        i += 1
+                        continue
+                    j = i
+                    while j + 1 < len(poly) and mask[j + 1]:
+                        j += 1
+                    if j - i + 1 >= 6:
+                        clipped.append(poly[i:j + 1])
+                    i = j + 1
+            polylines = clipped
         if not polylines:
             # a lane with nothing confident to offer offers nothing
             graph.settings["suggestions"] = []
@@ -129,7 +172,10 @@ class NXLOOM_OT_suggest_accept(bpy.types.Operator):
                 continue
             if surface is not None:
                 poly = np.asarray(surface.project(poly), dtype=float)
-            plane = _seam_plane(context, poly[-1])
+            plane = None
+            if st.symmetry_axis != "NONE" and st.seam_snap:
+                from ..core.symmetry import AXIS_INDEX
+                plane = (AXIS_INDEX[st.symmetry_axis], span * 0.01)
             res = commit_path(graph, surface, poly, snap, min_step,
                               arc_type=st.arc_type, smooth=0.25, plane=plane)
             if res is not None:
