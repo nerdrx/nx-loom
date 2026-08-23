@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.16.0 — unreleased
+
+**Why one side of a "mirrored" layout can fail to solve while the other is
+fine.** A genuinely paired region cannot do that — partners share one
+subdivision count and solve or fail together. When it happens, that region is
+not actually paired: both sides carry hand-drawn geometry too different to
+twin, so the two halves quantise **independently**, and slightly different
+structure on one side can be unsolvable where the other side's is fine.
+
+The tool now shows and fixes this instead of leaving it to be deduced:
+
+- **Unpaired arcs draw in warning orange** whenever symmetry is on, and the
+  Symmetry panel counts them with an explanation.
+- **Make Truly Mirrored** (Keep + / Keep −) drops the unpaired arcs on one
+  side and regenerates exact mirrors of the kept side. Verified: 14 unpaired
+  → 0, mesh exactly symmetric again (0.0 mirror error).
+- An **Exact Mirror** scope also replaces *twinned* counterparts — pairs whose
+  counts are tied but whose hand-drawn shapes differ — for full geometric
+  symmetry, at the cost of the discarded side's shapes.
+- New invariant under test: paired arcs always carry identical counts.
+
+324 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.15.0 — unreleased
 
 You were right: the more you added, the more got recalculated. An edit on a

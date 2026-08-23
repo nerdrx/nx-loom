@@ -223,10 +223,28 @@ class NXLOOM_PT_symmetry(_Sub, bpy.types.Panel):
         layout.prop(st, "symmetry_tolerance")
         graph = get_graph(active_object(context))
         if graph is not None:
+            from ..core.symmetry import unpaired_arcs
             n_mir = sum(1 for a in graph.arcs.values() if a.mirror_of is not None)
             n_twin = sum(1 for a in graph.arcs.values() if a.twin is not None)
             layout.label(text=f"{n_mir} mirrored, {n_twin} paired",
                          icon="CHECKMARK")
+            loose = unpaired_arcs(graph, st.symmetry_axis,
+                                  st.symmetry_tolerance)
+            if loose:
+                col = layout.column(align=True)
+                col.alert = True
+                col.label(text=f"{len(loose)} arc(s) unpaired (orange)",
+                          icon="ERROR")
+                col.label(text="Both sides drawn, too different")
+                col.label(text="to pair — they solve separately,")
+                col.label(text="so one side can fail alone.")
+                row = layout.row(align=True)
+                op = row.operator("nxloom.symmetrize_side", text="Keep +")
+                op.keep = "POS"
+                op.scope = "LOOSE"
+                op = row.operator("nxloom.symmetrize_side", text="Keep −")
+                op.keep = "NEG"
+                op.scope = "LOOSE"
 
 
 class NXLOOM_PT_edits(_Sub, bpy.types.Panel):

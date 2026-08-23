@@ -539,6 +539,13 @@ the thing it depends on — a stale "covered" verdict would hide a deleted
 counterpart, which is why coverage is re-verified (fast, via KD-tree) rather
 than cached.
 
+**Unpaired arcs are a first-class warning.** `symmetry.unpaired_arcs` lists
+authored off-plane arcs with no partner of any kind; the overlay draws them in
+warning orange and the panel explains them, because two independently-drawn
+halves quantise independently and produce exactly the confusing symptom of one
+side failing to solve. `nxloom.symmetrize_side` repairs by keeping one side
+(scope: unpaired only, or also replacing twins for exact geometric symmetry).
+
 **Seam snap.** With symmetry on, any landing point (anchor click, stroke end,
 node drag) within the pixel snap radius of the mirror plane is clamped exactly
 onto it (`authoring.plane_snap`, threaded through `resolve_anchor`), with a

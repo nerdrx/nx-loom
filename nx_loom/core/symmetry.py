@@ -382,6 +382,34 @@ def _split_crossing(graph, ax, tol, surface):
     return count
 
 
+def unpaired_arcs(graph, axis, tol=1e-4):
+    """Authored off-plane arcs with no symmetry partner at all.
+
+    These are the arcs that quietly break "working mirrored": both sides carry
+    hand-drawn geometry too different to pair, so the duplication guard leaves
+    them alone and the two sides quantise INDEPENDENTLY — which is how one
+    side of a mirrored-looking layout can fail to solve while the other side
+    is fine. A paired region cannot do that: mirrored patches share their
+    counts through representative arcs and solve or fail together.
+    """
+    if not axis or axis == "NONE":
+        return []
+    ax = AXIS_INDEX[axis]
+    mirrored_from = {a.mirror_of for a in graph.arcs.values()
+                     if a.mirror_of is not None}
+    twinned_to = {a.twin for a in graph.arcs.values() if a.twin is not None}
+    out = []
+    for aid, arc in graph.arcs.items():
+        if arc.mirror_of is not None or arc.twin is not None:
+            continue
+        if aid in mirrored_from or aid in twinned_to:
+            continue
+        if _straddles_or_on(arc, ax, tol):
+            continue
+        out.append(aid)
+    return out
+
+
 def representative(graph):
     """Map every arc to the arc whose subdivision count it must copy.
 

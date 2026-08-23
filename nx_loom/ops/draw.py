@@ -993,6 +993,89 @@ class NXLOOM_OT_halo(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
 
+class NXLOOM_OT_symmetrize_side(bpy.types.Operator):
+    """Make the layout truly mirrored: keep one side's unpaired arcs, drop the
+    other side's, and regenerate real mirrors for them"""
+
+    bl_idname = "nxloom.symmetrize_side"
+    bl_label = "Make Truly Mirrored"
+    bl_options = {"REGISTER", "UNDO"}
+
+    keep: bpy.props.EnumProperty(
+        name="Keep",
+        items=[("POS", "Keep + Side", "Authored arcs on the positive side win"),
+               ("NEG", "Keep − Side", "Authored arcs on the negative side win")],
+        default="POS",
+    )
+    scope: bpy.props.EnumProperty(
+        name="Scope",
+        items=[("LOOSE", "Unpaired Only",
+                "Fix only arcs with no partner. Twinned pairs keep both "
+                "hand-drawn shapes, with their counts already tied"),
+               ("ALL", "Exact Mirror",
+                "Also replace twinned counterparts with exact mirrors of the "
+                "kept side — geometric symmetry, discarding the other side's "
+                "hand-drawn shapes")],
+        default="LOOSE",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj
+                    and context.scene.nx_loom.symmetry_axis != "NONE")
+
+    def execute(self, context):
+        from ..core import symmetry as sym
+
+        obj = active_object(context)
+        st = context.scene.nx_loom
+        graph = get_graph(obj)
+        surface = _surface_of(graph, context)
+        ax = sym.AXIS_INDEX[st.symmetry_axis]
+
+        loose = sym.unpaired_arcs(graph, st.symmetry_axis,
+                                  st.symmetry_tolerance)
+        if not loose:
+            self.report({"INFO"}, "Every arc is already paired")
+            return {"CANCELLED"}
+
+        want_sign = 1.0 if self.keep == "POS" else -1.0
+
+        def discard_side(aid):
+            return float(np.asarray(graph.arcs[aid].path)[:, ax].mean()) \
+                * want_sign < 0
+
+        doomed = [aid for aid in loose if discard_side(aid)]
+        if self.scope == "ALL":
+            # Twins tie counts but keep both hand-drawn shapes. Exact Mirror
+            # discards the other side's shapes so true mirrors regenerate.
+            twin_targets = {a.twin for a in graph.arcs.values()
+                            if a.twin is not None}
+            for aid, arc in list(graph.arcs.items()):
+                if (arc.twin is not None or aid in twin_targets) \
+                        and discard_side(aid):
+                    doomed.append(aid)
+        for aid in set(doomed):
+            remove_arc(graph, aid)
+        for arc in graph.arcs.values():
+            if arc.twin is not None and arc.twin not in graph.arcs:
+                arc.twin = None
+        # force a full resync: the kept side's unpaired arcs now have no
+        # covering geometry in the way, so true mirrors regenerate for them
+        graph.settings.pop("sym_sig", None)
+
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        graph = get_graph(obj)
+        left = len(sym.unpaired_arcs(graph, st.symmetry_axis,
+                                     st.symmetry_tolerance))
+        self.report({"INFO"},
+                    f"Dropped {len(doomed)} unpaired arc(s), mirrored the "
+                    f"kept side — {left} still unpaired")
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_smooth_arcs(bpy.types.Operator):
     """Fair hand jitter out of the selected arc, or all freehand arcs"""
 
@@ -1276,6 +1359,7 @@ _CLASSES = (
     NXLOOM_OT_draw_arc,
     NXLOOM_OT_ring_cut,
     NXLOOM_OT_halo,
+    NXLOOM_OT_symmetrize_side,
     NXLOOM_OT_smooth_arcs,
     NXLOOM_OT_hover,
     NXLOOM_OT_adjust_loops,

@@ -33,6 +33,7 @@ COL_HOVER = (1.0, 0.85, 0.2, 1.0)
 COL_PINNED = (0.20, 1.0, 0.85, 1.0)
 COL_ACTIVE = (1.0, 0.45, 0.85, 1.0)
 COL_SEAM = (0.35, 1.0, 1.0, 1.0)
+COL_UNPAIRED = (1.0, 0.55, 0.1, 0.95)
 
 _handle = None
 _handle_px = None
@@ -147,7 +148,7 @@ def _bad_patch_loops(graph, bad_ids):
     return verts
 
 
-def _build(graph, bad_ids, active=None):
+def _build(graph, bad_ids, active=None, axis="NONE"):
     line_shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
     point_shader = gpu.shader.from_builtin("UNIFORM_COLOR")
 
@@ -161,6 +162,22 @@ def _build(graph, bad_ids, active=None):
                  palette.get(kind, COL_ARC["flow"]),
                  3.2 if kind == "pinned" else 2.4)
             )
+    # Arcs with no symmetry partner: the ones that quietly split a "mirrored"
+    # layout into two independent halves. Drawn in warning orange so an
+    # unpaired region is visible before its solve behaviour gets confusing.
+    if axis != "NONE":
+        from ..core.symmetry import unpaired_arcs
+        pairs = []
+        for aid in unpaired_arcs(graph, axis):
+            path = np.asarray(graph.arcs[aid].path, dtype=float)
+            for i in range(len(path) - 1):
+                pairs.append(tuple(path[i]))
+                pairs.append(tuple(path[i + 1]))
+        if pairs:
+            batches["lines"].append(
+                (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
+                 COL_UNPAIRED, 3.6))
+
     arc = graph.arcs.get(int(active)) if active is not None else None
     if arc is not None and len(arc.path) >= 2:
         pairs = []
@@ -202,11 +219,12 @@ def draw():
 
     bad_ids = set(obj.get("nx_loom_bad_patches", []) or [])
     active = obj.get("nx_loom_active_arc")
+    axis = getattr(st, "symmetry_axis", "NONE")
     key = (obj.name, obj.get(GRAPH_KEY, "")[:64], len(obj.get(GRAPH_KEY, "")),
-           tuple(sorted(bad_ids)), active)
+           tuple(sorted(bad_ids)), active, axis)
     if _cache["key"] != key:
         try:
-            _cache["batches"] = _build(graph, bad_ids, active)
+            _cache["batches"] = _build(graph, bad_ids, active, axis)
             _cache["key"] = key
         except Exception:
             return
