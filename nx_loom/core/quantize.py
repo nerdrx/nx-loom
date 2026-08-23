@@ -397,7 +397,8 @@ def _bump_infeasible_splits(counts, patches, sides_of, targets, locks, floors):
     return touched
 
 
-def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None):
+def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None,
+             seed=None, shifts=(0.0, 0.25, -0.25, 0.5, -0.5)):
     """Solve integer subdivision counts for every arc.
 
     Returns (counts, report). Never raises on a well-formed graph and never
@@ -461,7 +462,7 @@ def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None):
     # almost nothing and reliably shakes it loose; the offsets are fixed, so
     # this stays deterministic.
     best = None
-    for shift in (0.0, 0.25, -0.25, 0.5, -0.5):
+    for shift in shifts:
         start = {}
         for a in arc_ids:
             if a in locks:
@@ -476,6 +477,31 @@ def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None):
             best = (score, counts, bad, bumped, shift)
         if not bad:
             break
+
+    seed_rescued = False
+    if best[0][0] > 0 and seed:
+        # Whether the system is solvable is purely topological; the heuristic
+        # failing is not the same as infeasibility. If the caller has counts
+        # that solved before -- an edit that moved a node changed only the
+        # TARGETS, not one constraint -- settling from them recovers a valid
+        # solution the fresh multi-start missed. This is what makes "I nudged
+        # a vertex and now it will not solve" impossible for edits that leave
+        # the topology alone.
+        start = {}
+        for a in arc_ids:
+            if a in locks:
+                start[a] = max(1, int(locks[a]))
+            else:
+                base = seed.get(a)
+                if base is None:
+                    base = int(round(real.get(a, solve_targets[a])))
+                start[a] = max(floors[a], int(base))
+        counts, bad, bumped = _settle(start)
+        regret = sum(abs(counts[x] - targets[x]) for x in arc_ids)
+        score = (len(bad), regret)
+        if score < best[0]:
+            best = (score, counts, bad, bumped, "seed")
+            seed_rescued = len(bad) == 0
     _, counts, unsatisfied, bumped, used_shift = best
 
     bad_patches = sorted({c.patch for c in unsatisfied})
@@ -498,6 +524,7 @@ def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None):
         "parity_stuck": sum(1 for c in unsatisfied if c.parity),
         "split_bumps": len(bumped),
         "round_shift": used_shift,
+        "seed_rescued": seed_rescued,
         "split_failures": split_failures,
         "total_regret": total_regret,
         "mean_regret": total_regret / max(len(arc_ids), 1),

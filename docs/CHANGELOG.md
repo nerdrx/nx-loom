@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.16.1 — unreleased
+
+**Nudging a vertex can no longer un-solve the layout.** Reported: push a node
+up, patches go red; pull it back, they solve. That was a bug, and a specific
+one — whether a layout can solve is purely topological (parity, locks,
+floors), and moving a node changes none of it. It only changes the arc
+lengths the heuristic starts from, and the repair phase could stall from one
+starting point while succeeding from another.
+
+The proof it was a bug is also the fix: the counts that solved before the
+nudge are still a complete valid solution after it. The solver is now seeded
+with the last successful counts (they ride on the arcs already), and when a
+fresh solve stalls, settling from the seed recovers them. Failed solves are
+also no longer cached, so a later attempt with a better seed gets its chance.
+
+Tested both ways: a deliberately cliffed fresh solve is rescued by the seed
+alone, and dragging a node through twelve random positions on a pinned layout
+never fails to solve.
+
+330 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.16.0 — unreleased
 
 **Why one side of a "mirrored" layout can fail to solve while the other is

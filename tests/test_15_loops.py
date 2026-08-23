@@ -127,6 +127,7 @@ def run():
     out += run_typed_loops()
     out += run_symmetric_pins()
     out += run_symmetric_attrs()
+    out += run_seed_rescue()
     return out
 
 
@@ -423,4 +424,103 @@ def run_symmetric_attrs():
     pid5 = sorted(g5.patches)[0]
     out.append(("without symmetry, canonical equals raw",
                 g5.canonical_key(pid5) == g5.patches[pid5].arc_key(), ""))
+    return out
+
+
+def run_seed_rescue():
+    """An edit that leaves topology alone can never un-solve a layout.
+
+    Solvability is topological; node positions only change the targets the
+    heuristic starts from. Reported as: nudge a vertex up, patches go red,
+    nudge it back, they solve. The counts that solved before the nudge were
+    still valid after it — the solver just failed to find them, so now it is
+    handed them as a seed.
+    """
+    import numpy as np
+
+    from nx_loom.core import quantize as qmod
+    from nx_loom.core.authoring import move_node, nearest_node
+    from nx_loom.core.surface import Surface
+
+    out = []
+
+    # unit: cripple the repair so the fresh solve fails, then hand it the
+    # previously valid counts — the seed alone must rescue it
+    X, Y, Z = [0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]
+    lengths = {a: 3.0 for a in X}
+    lengths.update({a: 1.7 for a in Y})
+    lengths.update({a: 0.9 for a in Z})
+    faces = {
+        0: [[X[0]], [Z[0]], [X[1]], [Z[1]]],
+        1: [[X[2]], [Z[2]], [X[3]], [Z[3]]],
+        2: [[Y[0]], [Z[1]], [Y[1]], [Z[2]]],
+        3: [[Y[2]], [Z[3]], [Y[3]], [Z[0]]],
+        4: [[X[0]], [Y[0]], [X[2]], [Y[2]]],
+        5: [[X[1]], [Y[1]], [X[3]], [Y[3]]],
+    }
+    good, rep0 = qmod.quantize(list(lengths), lengths, 0.25,
+                               list(faces), lambda p: faces[p])
+    out.append(("baseline solves", not rep0["unsatisfied_patches"], ""))
+
+    # The rescue branch itself. The multi-start stack has grown robust enough
+    # that a fresh failure cannot be forced through sensible inputs any more,
+    # so the fresh attempts are pushed off a cliff explicitly: one absurd
+    # rounding shift, repair stalled. What remains is exactly the situation
+    # after the reported node-nudge — a valid solution exists (the seed) and
+    # the fresh heuristic cannot find it.
+    chain = {0: [[0, 1, 2], [3], [4], [5]]}
+    clens = {0: 0.375, 1: 0.375, 2: 0.375, 3: 0.375, 4: 1.125, 5: 0.375}
+    seed_ok = {0: 2, 1: 2, 2: 2, 3: 2, 4: 6, 5: 2}
+    cons = qmod.build_constraints(list(chain), lambda p: chain[p])
+    out.append(("the seed is a genuinely valid solution",
+                all(not c.violated(seed_ok) for c in cons), ""))
+
+    keep = qmod.MAX_REPAIR_ITERS
+    try:
+        qmod.MAX_REPAIR_ITERS = 0
+        c1, r1 = qmod.quantize(list(clens), clens, 0.25,
+                               list(chain), lambda p: chain[p],
+                               shifts=(9.0,))
+        out.append(("a cliffed fresh solve fails",
+                    len(r1["unsatisfied_patches"]) > 0,
+                    str({a: c1[a] for a in sorted(c1)})))
+        c2, r2 = qmod.quantize(list(clens), clens, 0.25,
+                               list(chain), lambda p: chain[p],
+                               seed=seed_ok, shifts=(9.0,))
+        out.append(("the seed alone rescues it",
+                    not r2["unsatisfied_patches"] and r2["seed_rescued"],
+                    f"rescued={r2['seed_rescued']}"))
+        out.append(("rescued counts honour every constraint",
+                    all(not c.violated(c2) for c in cons), ""))
+    finally:
+        qmod.MAX_REPAIR_ITERS = keep
+
+    # integration: the reported gesture, in a loop — pin an arc like the
+    # user's 4*, then drag a node through many positions and rebuild each time
+    obj = _grid_layout(n=3, target_edge=0.3)
+    graph = get_graph(obj)
+    aid = sorted(graph.arcs)[0]
+    graph.arcs[aid].n_lock = 4
+    set_graph(obj, graph)
+    rebuild_object(obj, bpy.context)
+
+    src = bpy.data.objects.get(get_graph(obj).reference)
+    surf = Surface(src, bpy.context.evaluated_depsgraph_get())
+    graph = get_graph(obj)
+    nid = sorted(graph.nodes)[4]
+    home = np.array(graph.nodes[nid].co, dtype=float)
+
+    fails = []
+    rng = np.random.default_rng(11)
+    for k in range(12):
+        offset = rng.normal(scale=0.25, size=3)
+        offset[2] = 0.0
+        move_node(graph, nid, home + offset, surf)
+        set_graph(obj, graph)
+        rep = rebuild_object(obj, bpy.context)
+        if rep["unsatisfied_patches"] or rep["failed_patches"]:
+            fails.append((k, rep["unsatisfied_patches"]))
+        graph = get_graph(obj)
+    out.append(("dragging a node around can no longer un-solve the layout",
+                not fails, f"{len(fails)} failures in 12 positions"))
     return out

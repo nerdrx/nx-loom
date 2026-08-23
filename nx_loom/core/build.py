@@ -93,11 +93,19 @@ def _solve_counts(graph, target_edge, fill_background=False):
     if hit is not None:
         counts_rep, qrep = hit
     else:
+        # The last successful counts ride on the arcs themselves. An edit that
+        # changes lengths but not topology cannot make the system infeasible,
+        # so they are a guaranteed-valid fallback when the fresh solve stalls.
+        seed = {r: graph.arcs[r].n for r in rep_ids
+                if graph.arcs[r].n is not None}
         counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
-                                    list(graph.patches), rep_sides, locks)
-        if len(_COUNT_CACHE) >= _COUNT_CACHE_CAP:
-            _COUNT_CACHE.clear()
-        _COUNT_CACHE[hash(key)] = (counts_rep, qrep)
+                                    list(graph.patches), rep_sides, locks,
+                                    seed=seed or None)
+        if not qrep["unsatisfied_patches"]:
+            # never cache a failure: a later call may carry a better seed
+            if len(_COUNT_CACHE) >= _COUNT_CACHE_CAP:
+                _COUNT_CACHE.clear()
+            _COUNT_CACHE[hash(key)] = (counts_rep, qrep)
     qrep = dict(qrep)
     qrep["lock_conflicts"] = lock_conflicts
     return {aid: counts_rep[rep_of[aid]] for aid in graph.arcs}, qrep

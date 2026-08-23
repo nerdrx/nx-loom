@@ -166,6 +166,14 @@ Steps 2–4 are re-run from several roundings of the same real solution
 restarting costs almost nothing, stays deterministic, and measurably matters —
 22 of 122 swept layouts land on a non-zero shift.
 
+The solve is **seeded with the last successful counts** (`quantize(seed=...)`,
+fed from `arc.n`). Solvability is topological; node positions only move the
+targets, so an edit that leaves the topology alone cannot make the system
+infeasible — the previous counts remain a complete valid solution, and the
+seed attempt recovers them whenever the fresh multi-start stalls. This is what
+makes "I nudged a vertex and now it will not solve" impossible for
+topology-preserving edits. Failed solves are never cached.
+
 This is a heuristic, not the min-cost-flow ILP of Campen/Bommes/Kobbelt 2015.
 It is exact on the common cases (single-arc sides, mostly-quad layouts) and
 degrades to "this patch could not be quantized, add an arc" — which is a
