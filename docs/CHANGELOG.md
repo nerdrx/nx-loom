@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.26.0 — unreleased
+
+**The organic suggestion lane** — promised since 0.1.0, and the lane chosen
+first back when the project began.
+
+`Suggest Arcs` smooths a 4-RoSy cross field over your sculpt, anchored to
+principal curvature where the surface is decisively bent; the field's
+singularities mark where poles belong, and the separatrices running out of
+them are exactly the arcs a retopologist would draw. They appear as **ghost
+polylines** — visibly not part of the document — with Accept and Discard
+beside them. Accepted proposals go through the same commit machinery as a
+hand-drawn stroke (snapping, crossings, seam handling), and become ordinary
+arcs with no memory of where they came from.
+
+SPEC §7 discipline, under test: nothing runs unprompted, ghosts touch no
+geometry, a featureless surface yields **no** proposals rather than noise, and
+discard removes exactly the ghosts. Field honesty, also under test: a
+cylinder's field runs along axis and rings with zero invented poles, and a
+sphere's field carries the eight quarter-turns of index that topology owes.
+
+Big sculpts are decimated to a solving proxy automatically; the field itself
+is vectorised (~360 ms at 7.7k faces).
+
+405 headless checks + 16 GUI checks; sweep 122/122.
+
+
 ## 0.25.0 — unreleased
 
 **The mirrored half stops being a trap.** "Doing stuff near the symmetry line

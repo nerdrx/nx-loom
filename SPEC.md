@@ -437,12 +437,13 @@ arcs become ordinary arcs with no memory of where they came from. No lane runs
 on its own, none is on by default, and none is allowed to touch the mesh —
 they write arcs, and arcs are the only thing they write.
 
-- **Organic (v0.2, first lane).** QuadForge's native 4-RoSy field → trace
-  separatrices out of singularities → motorcycle graph → simplify → *proposed*
-  arcs. Plus symmetry mirroring of arcs the artist already drew, and a
-  landmark-snapped template library (eye ring, mouth ring, ear, deltoid) that
-  the artist places and drags — placement is a manual act, the template only
-  saves the drawing.
+- **Organic (SHIPPED, `core/suggest.py` + `ops/suggest.py`).** A native
+  4-RoSy field (curvature-anchored, vectorised smoothing over a decimation
+  proxy) → singularities by holonomy index → separatrices traced into ghost
+  polylines stored in `settings["suggestions"]`. Accept commits each through
+  `commit_path` — ordinary arcs, full snapping/crossing/seam machinery;
+  Discard deletes ghosts only. A surface with nothing confident to say yields
+  nothing. Landmark templates (eye ring, mouth ring) remain future work.
 - **Hard surface (v0.3).** Planar region growing + RANSAC cylinder/cone/sphere
   fits + fillet strips (near-constant principal curvature between two
   primitives). Intersection ridges are offered as crease arcs and fillets as

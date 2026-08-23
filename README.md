@@ -153,12 +153,14 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 395 headless
+layouts — including a layout *drawn from nothing* on a sphere. 405 headless
 checks plus 16 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
 
-Not written yet: the suggestion lanes.
+The organic suggestion lane is in: **Suggest Arcs** proposes edge flow from
+the sculpt's own curvature, as ghosts you accept or discard. Hard-surface and
+rigging lanes remain future work.
 
 A patch NX Loom cannot quantize, split or fill without going non-manifold is
 dropped and named in the report — never fudged into the mesh.

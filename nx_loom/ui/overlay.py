@@ -32,6 +32,7 @@ COL_FILL_BG = (0.5, 0.5, 0.55, 0.10)
 COL_HOLE_EDGE = (0.3, 0.75, 0.8, 0.6)
 COL_TICK = (1.0, 1.0, 1.0, 0.45)
 COL_SEAM_CURVE = (0.35, 1.0, 1.0, 0.30)
+COL_SUGGEST = (0.85, 0.95, 1.0, 0.55)
 COL_NODE = (0.72, 0.42, 1.0, 1.0)
 COL_CORNER = (1.0, 1.0, 1.0, 1.0)
 COL_BAD = (1.0, 0.18, 0.28, 1.0)
@@ -240,6 +241,19 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
             batches["lines"].append(
                 (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
                  COL_SEAM_CURVE, 1.4))
+
+    # proposed arcs render as ghosts — visibly not yet part of the document
+    for flat in (graph.settings.get("suggestions") or []):
+        pts = np.asarray(flat, dtype=float).reshape(-1, 3)
+        if len(pts) < 2:
+            continue
+        pairs2 = []
+        for i in range(len(pts) - 1):
+            pairs2.append(tuple(pts[i]))
+            pairs2.append(tuple(pts[i + 1]))
+        batches["lines"].append(
+            (batch_for_shader(line_shader, "LINES", {"pos": pairs2}),
+             COL_SUGGEST, 1.8))
 
     palette = dict(COL_ARC)
     palette["pinned"] = COL_PINNED
@@ -512,6 +526,7 @@ LEGEND = (
     ("failed patch", COL_FILL_BAD[:3] + (1.0,)),
     ("hole", COL_HOLE_EDGE[:3] + (1.0,)),
     ("mid / snap", COL_SEAM),
+    ("suggested", COL_SUGGEST),
 )
 
 

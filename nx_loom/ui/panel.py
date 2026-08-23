@@ -327,6 +327,27 @@ class NXLOOM_PT_finish(_Sub, bpy.types.Panel):
         layout.operator("nxloom.apply", icon="CHECKMARK")
 
 
+class NXLOOM_PT_suggest(_Sub, bpy.types.Panel):
+    bl_label = "Suggest"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        obj = active_object(context)
+        graph = get_graph(obj)
+        n = len(graph.settings.get("suggestions") or []) if graph else 0
+        layout.label(text="Proposes arcs from the")
+        layout.label(text="sculpt's curvature. Ghosts")
+        layout.label(text="only — nothing is applied")
+        layout.label(text="until you accept.")
+        layout.operator("nxloom.suggest_layout", icon="LIGHT_HEMI")
+        if n:
+            layout.label(text=f"{n} proposal(s) shown", icon="OUTLINER_OB_LIGHT")
+            row = layout.row(align=True)
+            row.operator("nxloom.suggest_accept", icon="CHECKMARK")
+            row.operator("nxloom.suggest_clear", icon="X")
+
+
 class NXLOOM_PT_retarget(_Sub, bpy.types.Panel):
     bl_label = "Retarget"
     bl_options = {"DEFAULT_CLOSED"}
@@ -442,7 +463,7 @@ class NXLOOM_PT_stats(_Sub, bpy.types.Panel):
 
 _CLASSES = (NXLOOM_PT_main, NXLOOM_PT_size, NXLOOM_PT_symmetry,
             NXLOOM_PT_edits, NXLOOM_PT_checkpoints,
-            NXLOOM_PT_retarget, NXLOOM_PT_uv,
+            NXLOOM_PT_suggest, NXLOOM_PT_retarget, NXLOOM_PT_uv,
             NXLOOM_PT_lods,
             NXLOOM_PT_finish,
             NXLOOM_PT_display, NXLOOM_PT_stats)
