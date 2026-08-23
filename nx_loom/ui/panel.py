@@ -91,12 +91,35 @@ class NXLOOM_PT_main(bpy.types.Panel):
 
         bad = list(obj.get("nx_loom_bad_patches", []) or [])
         if bad:
-            warn = layout.box().column(align=True)
+            box = layout.box()
+            warn = box.column(align=True)
             warn.alert = True
             warn.label(text=f"{len(bad)} patch(es) unresolved", icon="ERROR")
-            warn.label(text="Add an arc, mark it a hole,")
-            warn.label(text="or change the size.")
-            warn.operator("nxloom.frame_problem", icon="ZOOM_SELECTED")
+            diag = obj.get("nx_loom_diag", {}) or {}
+            first = diag.get(str(bad[0]))
+            if first:
+                col = box.column(align=True)
+                for line in list(first)[:2]:
+                    text = str(line)
+                    while text:
+                        col.label(text=text[:34])
+                        text = text[34:]
+            else:
+                warn.label(text="Add an arc, mark it a hole,")
+                warn.label(text="or change the size.")
+            row = box.row(align=True)
+            row.operator("nxloom.frame_problem", icon="ZOOM_SELECTED")
+            if obj.get("nx_loom_fixes"):
+                sub = row.row(align=True)
+                sub.alert = True
+                sub.operator("nxloom.fix_patch", icon="TOOL_SETTINGS")
+
+        n_bigons = int(obj.get("nx_loom_bigons", 0) or 0)
+        if n_bigons:
+            col = layout.column(align=True)
+            col.label(text=f"{n_bigons} two-sided sliver(s) skipped",
+                      icon="INFO")
+            col.label(text="— usually a leftover from a merge.")
         elif graph is not None and graph.patches:
             layout.label(text="All patches resolved", icon="CHECKMARK")
 
@@ -174,6 +197,13 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
                            + ("  (pinned)" if arc.n_lock else "  (solved)"),
                       icon="PINNED" if arc.n_lock else "DECORATE")
             col.prop(st, "active_loops")
+            pin_warn = str(obj.get("nx_loom_pin_warn", "") or "")
+            if pin_warn:
+                w = col.column(align=True)
+                w.alert = True
+                while pin_warn:
+                    w.label(text=pin_warn[:34])
+                    pin_warn = pin_warn[34:]
             row = col.row(align=True)
             row.enabled = bool(arc.n_lock)
             row.operator("nxloom.unpin_arc", icon="UNLINKED")

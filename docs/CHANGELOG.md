@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.22.0 — unreleased
+
+Usability pass slice 3: failures explain themselves.
+
+- **Per-patch diagnosis.** A failing patch now says why, in numbers: "opposite
+  sides disagree: 3 vs 2 vs 9 vs 2 — pinned arcs 20 (3*), 19 (9*) force it",
+  "5-sided patch needs an even loop total, it gets 9", "side counts cannot fan
+  around a centre — add density here". Shown in the panel and echoed by Show
+  Problem Patch.
+- **Fix It.** One click applies the first repair that actually works — every
+  candidate is validated on a copy of the document first, and a "fix" that
+  fails or breaks something new is never applied. Releasing the pin that
+  fights its own target hardest comes first; raising density inside a
+  starved patch is the fallback.
+- **Typing an impossible pin warns immediately**, in the Loops panel, instead
+  of leaving a silent red patch to find.
+- **Apply confirms over failures.** Unresolved patches become permanent holes
+  on Apply; that now asks, instead of rewarding a habit-click.
+- **Collapsed slivers are counted.** A merge that produces a two-sided region
+  used to vanish silently from the fill; the panel now says so.
+
+374 headless checks + 15 GUI checks; sweep 122/122.
+
+
 ## 0.21.0 — unreleased
 
 Usability pass slice 2: the visual instrument.

@@ -177,10 +177,12 @@ def refresh(obj, graph, context, rebuild=True):
     surface = _surface_of(graph, context)
     normal_at = surface.normal_at if surface else None
     sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
-    graph.discover_patches(normal_at=normal_at, corner_angle=st.corner_angle)
+    drep = graph.discover_patches(normal_at=normal_at,
+                                  corner_angle=st.corner_angle)
     sym.enforce_mirrored_patches(graph, st.symmetry_axis,
                                  st.symmetry_tolerance)
     _update_seam_curve(obj, surface, st)
+    obj["nx_loom_bigons"] = int(drep.get("rejected", {}).get("bigon", 0))
     set_graph(obj, graph)
     bad = []
     if rebuild and graph.patches:
@@ -191,7 +193,17 @@ def refresh(obj, graph, context, rebuild=True):
                          | {pid for pid, why in rep["failed_patches"]
                             if why != "background"})
             obj["nx_loom_background"] = list(rep.get("background", []))
+            from ..core.diagnose import diagnose, plan_fixes
+            diag = diagnose(graph, rep)
+            obj["nx_loom_diag"] = {str(k): list(v) for k, v in diag.items()}
+            # ID properties refuse mixed-type arrays; a dict of dicts it is
+            obj["nx_loom_fixes"] = {
+                str(i): {"label": str(l), "kind": str(k2), "payload": int(pl)}
+                for i, (l, k2, pl) in enumerate(plan_fixes(graph, rep))}
     obj["nx_loom_bad_patches"] = bad
+    if not bad:
+        obj["nx_loom_diag"] = {}
+        obj["nx_loom_fixes"] = {}
     overlay.mark_dirty()
     return bad
 
@@ -721,9 +733,14 @@ def apply_active_loops(context, want):
         return
     if graph.arcs[aid].n_lock == want:
         return
+    before = set(obj.get("nx_loom_bad_patches", []) or [])
     graph.arcs[aid].n_lock = max(1, int(want))
     set_graph(obj, graph)
-    refresh(obj, graph, context)
+    bad = refresh(obj, graph, context)
+    newly = set(bad or []) - before
+    obj["nx_loom_pin_warn"] = (
+        f"the {want}* pin cannot hold — {len(newly)} patch(es) went "
+        f"unresolved (Fix It can release the loser)" if newly else "")
 
 
 class NXLOOM_OT_select_arc(bpy.types.Operator):
@@ -1213,6 +1230,66 @@ class NXLOOM_OT_symmetrize_side(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NXLOOM_OT_fix_patch(bpy.types.Operator):
+    """Apply the first repair that actually resolves the failing patches"""
+
+    bl_idname = "nxloom.fix_patch"
+    bl_label = "Fix It"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and obj.get("nx_loom_fixes"))
+
+    def execute(self, context):
+        from ..core.build import _solve_counts
+        from ..core.graph import LayoutGraph
+
+        obj = active_object(context)
+        st = context.scene.nx_loom
+        graph = get_graph(obj)
+        target = set(obj.get("nx_loom_bad_patches", []) or [])
+        stored = obj.get("nx_loom_fixes", {}) or {}
+        fixes = [(stored[k]["label"], stored[k]["kind"], stored[k]["payload"])
+                 for k in sorted(stored.keys(), key=int)]
+
+        def apply_fix(g, kind, payload):
+            if kind == "unlock":
+                if payload in g.arcs:
+                    g.arcs[int(payload)].n_lock = None
+            elif kind == "densify":
+                if int(payload) in g.patches:
+                    g.set_density(int(payload),
+                                  g.patch_density(int(payload)) * 1.6)
+
+        for label, kind, payload in fixes:
+            # every candidate is validated on a copy before touching the
+            # real document — a "fix" that fails or breaks something new is
+            # never applied
+            trial = LayoutGraph.from_json(graph.to_json())
+            apply_fix(trial, kind, int(payload))
+            _c, qrep = _solve_counts(trial, st.target_edge,
+                                     st.fill_background)
+            still = set(qrep.get("unsatisfied_patches", []))
+            if target & still:
+                continue
+            if len(still) > len(target):
+                continue
+            apply_fix(graph, kind, int(payload))
+            set_graph(obj, graph)
+            obj["nx_loom_pin_warn"] = ""
+            refresh(obj, graph, context)
+            bpy.ops.ed.undo_push(message=f"NX Loom: {label}")
+            self.report({"INFO"}, f"Fixed: {label}")
+            return {"FINISHED"}
+
+        self.report({"WARNING"},
+                    "No single change resolves this — the diagnosis text "
+                    "says what the patch needs")
+        return {"CANCELLED"}
+
+
 class NXLOOM_OT_smooth_arcs(bpy.types.Operator):
     """Fair hand jitter out of the selected arc, or all freehand arcs"""
 
@@ -1668,6 +1745,7 @@ _CLASSES = (
     NXLOOM_OT_repeat_ring,
     NXLOOM_OT_set_arc_type_key,
     NXLOOM_OT_symmetrize_side,
+    NXLOOM_OT_fix_patch,
     NXLOOM_OT_smooth_arcs,
     NXLOOM_OT_hover,
     NXLOOM_OT_adjust_loops,

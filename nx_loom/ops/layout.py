@@ -399,6 +399,15 @@ class NXLOOM_OT_apply(bpy.types.Operator):
         obj = active_object(context)
         return bool(obj is not None and GRAPH_KEY in obj)
 
+    def invoke(self, context, event):
+        obj = active_object(context)
+        bad = list(obj.get("nx_loom_bad_patches", []) or [])
+        if bad:
+            # unresolved patches become permanent holes on Apply — that wants
+            # a deliberate yes, not a habit-click
+            return context.window_manager.invoke_confirm(self, event)
+        return self.execute(context)
+
     def execute(self, context):
         obj = active_object(context)
         st = context.scene.nx_loom
@@ -559,7 +568,12 @@ class NXLOOM_OT_frame_problem(bpy.types.Operator):
         rv3d = getattr(context.space_data, "region_3d", None)
         if rv3d is not None:
             rv3d.view_location = centre
-        self.report({"INFO"}, f"Patch {pid}: {len(graph.patches[pid].sides)} sides")
+        diag = obj.get("nx_loom_diag", {}) or {}
+        lines = diag.get(str(pid))
+        msg = f"Patch {pid}: {len(graph.patches[pid].sides)} sides"
+        if lines:
+            msg += " — " + str(list(lines)[0])
+        self.report({"INFO"}, msg)
         return {"FINISHED"}
 
 

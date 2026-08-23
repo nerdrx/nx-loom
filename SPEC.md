@@ -560,6 +560,10 @@ through `get_graph` → `set_graph`, which parses fresh so a cancelled modal can
 discard its edits. Panel code must not run the solver per draw either
 (`floor_faces` is cached the same way).
 
+A failing patch must say why, in the artist's numbers (`core/diagnose.py`),
+and every one-click repair is validated on a document copy before it touches
+the real graph — a fix that fails or widens the failure is never applied.
+
 A gesture that does nothing must say why. An operator reachable from a click
 never returns CANCELLED silently — no reference set, nothing under the cursor,
 whatever it is, it goes to `self.report`.
