@@ -366,6 +366,24 @@ class NXLOOM_PT_lods(_Sub, bpy.types.Panel):
         layout.operator("nxloom.make_lods", icon="MOD_DECIM")
 
 
+class NXLOOM_PT_checkpoints(_Sub, bpy.types.Panel):
+    bl_label = "Checkpoints"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        obj = active_object(context)
+        layout.operator("nxloom.checkpoint_save", icon="FILE_TICK")
+        store = obj.get("nx_loom_checkpoints", {}) or {}
+        for name in sorted(store.keys()):
+            row = layout.row(align=True)
+            op = row.operator("nxloom.checkpoint_restore", text=str(name),
+                              icon="LOOP_BACK")
+            op.name = str(name)
+            op = row.operator("nxloom.checkpoint_delete", text="", icon="X")
+            op.name = str(name)
+
+
 class NXLOOM_PT_display(_Sub, bpy.types.Panel):
     bl_label = "Display"
     bl_options = {"DEFAULT_CLOSED"}
@@ -422,7 +440,8 @@ class NXLOOM_PT_stats(_Sub, bpy.types.Panel):
 
 
 _CLASSES = (NXLOOM_PT_main, NXLOOM_PT_size, NXLOOM_PT_symmetry,
-            NXLOOM_PT_edits, NXLOOM_PT_retarget, NXLOOM_PT_uv,
+            NXLOOM_PT_edits, NXLOOM_PT_checkpoints,
+            NXLOOM_PT_retarget, NXLOOM_PT_uv,
             NXLOOM_PT_lods,
             NXLOOM_PT_finish,
             NXLOOM_PT_display, NXLOOM_PT_stats)

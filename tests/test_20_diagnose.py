@@ -123,6 +123,60 @@ def run():
     set_graph(obj, graph)
     refresh(obj, graph, bpy.context)
     out.append(("collapsed slivers are surfaced when they appear",
-                int(obj.get("nx_loom_bigons", 0) or 0) >= 0, 
+                int(obj.get("nx_loom_bigons", 0) or 0) >= 0,
                 f"bigons={obj.get('nx_loom_bigons')}"))
+
+    out += run_checkpoints()
+    return out
+
+
+def run_checkpoints():
+    """Named layout states, and the slide-rail capture."""
+    from nx_loom.core.graph import GRAPH_KEY
+    from nx_loom.core.authoring import new_node
+
+    out = []
+    obj = _grid()
+    graph = get_graph(obj)
+    n_arcs = len(graph.arcs)
+
+    res = bpy.ops.nxloom.checkpoint_save(name="before mess")
+    out.append(("a checkpoint saves", "FINISHED" in res, str(res)))
+
+    # wreck the layout
+    for aid in list(graph.arcs)[: n_arcs // 2]:
+        del graph.arcs[aid]
+    new_node(graph, [5, 5, 5])
+    set_graph(obj, graph)
+    rebuild_object(obj, bpy.context)
+    out.append(("the layout is genuinely wrecked",
+                len(get_graph(obj).arcs) < n_arcs, ""))
+
+    res = bpy.ops.nxloom.checkpoint_restore(name="before mess")
+    out.append(("restore finishes", "FINISHED" in res, str(res)))
+    g2 = get_graph(obj)
+    out.append(("the layout comes back whole",
+                len(g2.arcs) == n_arcs and len(obj.data.polygons) > 0,
+                f"{len(g2.arcs)} arcs, {len(obj.data.polygons)} faces"))
+
+    # bpy raises on an ERROR report rather than returning CANCELLED
+    try:
+        bpy.ops.nxloom.checkpoint_restore(name="never saved")
+        refused = False
+    except RuntimeError:
+        refused = True
+    out.append(("restoring an unknown name is refused politely", refused, ""))
+    bpy.ops.nxloom.checkpoint_delete(name="before mess")
+    out.append(("deleted checkpoints are gone",
+                "before mess" not in (obj.get("nx_loom_checkpoints", {}) or {}),
+                ""))
+
+    # the slide rail must be frozen at drag start, not read live
+    import inspect
+
+    from nx_loom.ops import draw as draw_ops
+    src = inspect.getsource(draw_ops.NXLOOM_OT_move_node)
+    out.append(("sliding uses rails frozen at drag start",
+                "self.rails" in src and ".copy()" in src
+                and "event.ctrl" in src, ""))
     return out

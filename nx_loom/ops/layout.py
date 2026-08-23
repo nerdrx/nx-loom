@@ -501,6 +501,90 @@ class NXLOOM_OT_generate_uvs(bpy.types.Operator):
         return {"FINISHED"}
 
 
+CHECKPOINT_KEY = "nx_loom_checkpoints"
+
+
+class NXLOOM_OT_checkpoint_save(bpy.types.Operator):
+    """Save the whole layout under a name — a state to come back to before
+    trying something drastic"""
+
+    bl_idname = "nxloom.checkpoint_save"
+    bl_label = "Save Checkpoint"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: bpy.props.StringProperty(name="Name", default="checkpoint")
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        obj = active_object(context)
+        name = (self.name or "checkpoint").strip()
+        store = dict(obj.get(CHECKPOINT_KEY, {}) or {})
+        store[name] = {
+            "graph": obj.get(GRAPH_KEY, ""),
+            "delta": obj.get(delta_mod.DELTA_KEY, ""),
+        }
+        obj[CHECKPOINT_KEY] = store
+        self.report({"INFO"}, f"Checkpoint '{name}' saved "
+                              f"({len(store)} total)")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_checkpoint_restore(bpy.types.Operator):
+    """Restore a named checkpoint — the current state goes on the undo stack"""
+
+    bl_idname = "nxloom.checkpoint_restore"
+    bl_label = "Restore"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: bpy.props.StringProperty()
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and obj.get(CHECKPOINT_KEY))
+
+    def execute(self, context):
+        obj = active_object(context)
+        store = obj.get(CHECKPOINT_KEY, {}) or {}
+        snap = store.get(self.name)
+        if snap is None:
+            self.report({"ERROR"}, f"No checkpoint named '{self.name}'")
+            return {"CANCELLED"}
+        obj[GRAPH_KEY] = snap["graph"]
+        if snap.get("delta"):
+            obj[delta_mod.DELTA_KEY] = snap["delta"]
+        elif delta_mod.DELTA_KEY in obj:
+            del obj[delta_mod.DELTA_KEY]
+        rebuild_object(obj, context)
+        bpy.ops.ed.undo_push(message=f"NX Loom: restore '{self.name}'")
+        self.report({"INFO"}, f"Restored '{self.name}'")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_checkpoint_delete(bpy.types.Operator):
+    """Forget a named checkpoint"""
+
+    bl_idname = "nxloom.checkpoint_delete"
+    bl_label = "Delete Checkpoint"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = active_object(context)
+        store = dict(obj.get(CHECKPOINT_KEY, {}) or {})
+        store.pop(self.name, None)
+        obj[CHECKPOINT_KEY] = store
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_activate_draw_tool(bpy.types.Operator):
     """Switch to the Loom Draw tool in the toolbar"""
 
@@ -580,6 +664,9 @@ class NXLOOM_OT_frame_problem(bpy.types.Operator):
 _CLASSES = (
     NXLOOM_OT_new_layout,
     NXLOOM_OT_generate_uvs,
+    NXLOOM_OT_checkpoint_save,
+    NXLOOM_OT_checkpoint_restore,
+    NXLOOM_OT_checkpoint_delete,
     NXLOOM_OT_activate_draw_tool,
     NXLOOM_OT_toggle_reference,
     NXLOOM_OT_frame_problem,

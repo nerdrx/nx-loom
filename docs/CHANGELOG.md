@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.23.0 — unreleased
+
+Usability pass, final slice.
+
+- **Checkpoints.** Save the whole layout under a name before trying something
+  drastic; restore or delete from the sidebar. Cheaper than undo-scrubbing —
+  the document is one blob, so a named state costs nothing.
+- **Slide (Ctrl while dragging a node).** Constrains the drag to the node's
+  own arcs, so a node moves *along* its line instead of freely over the
+  surface. The rails are frozen at drag start — the live paths deform under
+  the node, and a rail must not chase its own tail.
+
+Deliberately deferred, with reasons: **background rebuild** (threading through
+an otherwise-stable pipeline for edits that already cost ~0.3–0.5 s — worth it
+only if large-layout lag comes back) and the **brand palette deep pass**
+(cosmetic-last; the palette got its correctness fix in 0.21).
+
+381 headless checks + 15 GUI checks; sweep 122/122.
+
+
 ## 0.22.0 — unreleased
 
 Usability pass slice 3: failures explain themselves.

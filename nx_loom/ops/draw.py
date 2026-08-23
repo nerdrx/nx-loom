@@ -561,16 +561,40 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
         self.nid = hit[0]
         self.start = np.array(self.graph.nodes[self.nid].co, dtype=float)
         self.merge_target = None
+        # frozen copies of the incident arcs: sliding must follow the lines
+        # as they were when the drag began — the live paths deform under the
+        # node as it moves, which would make the rail chase its own tail
+        self.rails = [np.asarray(arc.path, dtype=float).copy()
+                      for arc in self.graph.arcs.values()
+                      if arc.a == self.nid or arc.b == self.nid]
         context.window.cursor_modal_set("SCROLL_XY")
         context.window_manager.modal_handler_add(self)
         context.workspace.status_text_set(
-            "Drag along the surface — drop onto another node to merge")
+            "Drag along the surface — drop onto another node to merge, "
+            "hold Ctrl to slide along the node's own arcs")
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
         if event.type == "MOUSEMOVE":
             origin, direction = _mouse_ray(context, event)
             point = ray_surface(self.surface, origin, direction)
+            if point is not None and event.ctrl and self.rails:
+                # slide: constrain to the nearest point on the node's own
+                # arcs, as captured at drag start
+                best = None
+                for rail in self.rails:
+                    a, ab = rail[:-1], rail[1:] - rail[:-1]
+                    denom = np.einsum("ij,ij->i", ab, ab)
+                    denom[denom < 1e-20] = 1e-20
+                    t = np.clip(np.einsum("ij,ij->i", point - a, ab) / denom,
+                                0.0, 1.0)
+                    proj = a + ab * t[:, None]
+                    d = np.linalg.norm(proj - point, axis=1)
+                    i = int(np.argmin(d))
+                    if best is None or d[i] < best[0]:
+                        best = (float(d[i]), proj[i])
+                if best is not None:
+                    point = np.asarray(best[1], dtype=float)
             if point is not None:
                 # Dropping onto another node welds them — armed whenever the
                 # cursor is within pick range of one, shown as its highlight.
