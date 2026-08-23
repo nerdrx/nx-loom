@@ -780,6 +780,28 @@ def bridge_rings(graph, surface, ring_a, ring_b, arc_type="flow"):
     return made
 
 
+def ring_from_plane(graph, surface, plane_pt, plane_n, near, anchor,
+                    arc_type="flow", k=4):
+    """Cut the surface with a plane and emit the loop nearest ``near`` as a
+    ring anchored at ``anchor``. The plane can come from a swipe or be
+    extrapolated from the last two — the geometry does not care."""
+    from ..core.contour import cross_section, nearest_loop, ring_segments
+
+    loops = cross_section(surface.verts, surface.tris, plane_pt, plane_n)
+    loop = nearest_loop(loops, near)
+    if loop is None:
+        return None
+    res = ring_segments(loop, k=k, start_at=anchor)
+    if res is None:
+        return None
+    nodes_pts, paths = res
+    node_ids = [new_node(graph, pt, surface) for pt in nodes_pts]
+    arc_ids = [add_arc(graph, node_ids[j], node_ids[(j + 1) % k], paths[j],
+                       surface, type=arc_type, rail="surface")
+               for j in range(k)]
+    return node_ids, arc_ids
+
+
 def commit_ring(graph, surface, ray0, ray1, arc_type="flow", k=4,
                 bridge_to=None):
     """Turn a swipe across a limb into a closed ring of k arcs.
@@ -808,21 +830,11 @@ def commit_ring(graph, surface, ray0, ray1, arc_type="flow", k=4,
         return None
 
     mid = (p0 + p1) * 0.5
-    loops = cross_section(surface.verts, surface.tris, mid, normal)
-    loop = nearest_loop(loops, mid)
-    if loop is None:
+    made = ring_from_plane(graph, surface, mid, normal, mid, p0,
+                           arc_type=arc_type, k=k)
+    if made is None:
         return None
-    res = ring_segments(loop, k=k, start_at=p0)
-    if res is None:
-        return None
-    nodes_pts, paths = res
-
-    node_ids = [new_node(graph, pt, surface) for pt in nodes_pts]
-    arc_ids = []
-    for j in range(k):
-        aid = add_arc(graph, node_ids[j], node_ids[(j + 1) % k], paths[j],
-                      surface, type=arc_type, rail="surface")
-        arc_ids.append(aid)
+    node_ids, arc_ids = made
 
     bridged = None
     if bridge_to and all(n in graph.nodes for n in bridge_to) \
@@ -894,6 +906,19 @@ class NXLOOM_OT_ring_cut(bpy.types.Operator):
                 return {"CANCELLED"}
             node_ids, arc_ids, bridged = res
             obj["nx_loom_last_ring"] = [int(n) for n in node_ids]
+            pts2 = trace_rays(self.surface,
+                              interp_rays(self.ray0,
+                                          _mouse_ray(context, event), 16))
+            if len(pts2) >= 2:
+                p0, p1 = pts2[0], pts2[-1]
+                view = (np.asarray(self.ray0[1], dtype=float)
+                        + np.asarray(_mouse_ray(context, event)[1],
+                                     dtype=float))
+                normal = np.cross(p1 - p0, view)
+                hist = list(obj.get("nx_loom_ring_hist", []) or [])
+                hist.append(list(map(float, list((p0 + p1) * 0.5)
+                                     + list(normal) + list(p0))))
+                obj["nx_loom_ring_hist"] = hist[-2:]
             refresh(obj, self.graph, context, rebuild=st.rebuild_on_draw)
             bpy.ops.ed.undo_push(message="NX Loom: ring cut")
             if bridged:
@@ -1193,6 +1218,174 @@ class NXLOOM_OT_smooth_arcs(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NXLOOM_OT_repeat_ring(bpy.types.Operator):
+    """Drop the next ring at the same spacing as the last two — press R"""
+
+    bl_idname = "nxloom.repeat_ring"
+    bl_label = "Repeat Ring"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj
+                    and len(obj.get("nx_loom_ring_hist", []) or []) >= 2)
+
+    def execute(self, context):
+        obj = active_object(context)
+        st = context.scene.nx_loom
+        graph = get_graph(obj)
+        surface = _surface_of(graph, context)
+        if surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
+            return {"CANCELLED"}
+
+        hist = [np.array(h, dtype=float)
+                for h in obj.get("nx_loom_ring_hist", [])]
+        prev, last = hist[-2], hist[-1]
+        delta = last[:3] - prev[:3]
+        pt = last[:3] + delta
+        normal = last[3:6]
+        anchor = last[6:9] + delta
+
+        made = ring_from_plane(graph, surface, pt, normal, pt, anchor,
+                               arc_type=st.arc_type)
+        if made is None:
+            self.report({"WARNING"},
+                        "No closed loop there — the limb probably ended")
+            return {"CANCELLED"}
+        node_ids, _arcs = made
+        bridged = None
+        if st.bridge_rings:
+            last_ring = list(obj.get("nx_loom_last_ring", []) or [])
+            if last_ring and all(n in graph.nodes for n in last_ring):
+                bridged = bridge_rings(graph, surface, last_ring, node_ids,
+                                       arc_type=st.arc_type)
+        obj["nx_loom_last_ring"] = [int(n) for n in node_ids]
+        obj["nx_loom_ring_hist"] = [list(map(float, last)),
+                                    list(map(float, list(pt) + list(normal)
+                                             + list(anchor)))]
+        refresh(obj, graph, context, rebuild=st.rebuild_on_draw)
+        bpy.ops.ed.undo_push(message="NX Loom: repeat ring")
+        self.report({"INFO"}, "Ring repeated"
+                    + (" and bridged" if bridged else ""))
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_loop_cut(bpy.types.Operator):
+    """Insert a loop parallel to the arc under the cursor, through the whole
+    quad strip — press C over an arc, click to place, Esc to cancel"""
+
+    bl_idname = "nxloom.loop_cut"
+    bl_label = "Loop Cut"
+    bl_options = {"REGISTER", "UNDO", "BLOCKING"}
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        self.graph = get_graph(obj)
+        self.surface = _surface_of(self.graph, context) if self.graph else None
+        if self.surface is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
+            return {"CANCELLED"}
+        if not self.graph.patches:
+            self.report({"WARNING"}, "Rebuild first — no patches to cut through")
+            return {"CANCELLED"}
+        span = float(np.linalg.norm(self.surface.verts.max(axis=0)
+                                    - self.surface.verts.min(axis=0)))
+        self.min_step = max(span * 0.004, 1e-6)
+        self.plan = None
+        context.window.cursor_modal_set("KNIFE")
+        context.window_manager.modal_handler_add(self)
+        context.workspace.status_text_set(
+            "Hover an arc to preview the loop — click to cut, Esc cancels")
+        self._preview(context, event)
+        return {"RUNNING_MODAL"}
+
+    def _preview(self, context, event):
+        from ..core.loopcut import plan_loop
+
+        point, hit = _arc_under(context, self.graph, event, self.surface)
+        self.plan = None
+        if hit is None:
+            overlay.set_preview(None)
+            return
+        aid, _seg, _t, on_arc, _d = hit
+        res = plan_loop(self.graph, aid, on_arc)
+        if res is None:
+            overlay.set_preview(None)
+            return
+        poly, closed = res
+        poly = np.asarray(self.surface.project(poly), dtype=float)
+        self.plan = (poly, closed)
+        overlay.set_preview(path=poly, snap=on_arc)
+
+    def _cleanup(self, context):
+        context.window.cursor_modal_restore()
+        context.workspace.status_text_set(None)
+        overlay.clear_preview()
+
+    def modal(self, context, event):
+        if event.type == "MOUSEMOVE":
+            self._preview(context, event)
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            self._cleanup(context)
+            if self.plan is None:
+                self.report({"WARNING"}, "No quad strip under the cursor")
+                return {"CANCELLED"}
+            poly, closed = self.plan
+            st = context.scene.nx_loom
+            obj = active_object(context)
+            radius = _snap_radius(context, poly[0])
+            if closed:
+                # a closed loop has no free endpoints: commit as two halves so
+                # each half has distinct anchors, like a cornerless ring
+                mid = len(poly) // 2
+                first = commit_path(self.graph, self.surface, poly[:mid + 1],
+                                    radius, self.min_step,
+                                    arc_type=st.arc_type)
+                if first is None:
+                    self.report({"WARNING"}, "Loop could not be committed")
+                    return {"CANCELLED"}
+                back = np.vstack([poly[mid:], poly[:1]])
+                commit_path(self.graph, self.surface, back, radius,
+                            self.min_step, arc_type=st.arc_type,
+                            start_node=first[2])
+            else:
+                if commit_path(self.graph, self.surface, poly, radius,
+                               self.min_step, arc_type=st.arc_type) is None:
+                    self.report({"WARNING"}, "Loop could not be committed")
+                    return {"CANCELLED"}
+            refresh(obj, self.graph, context, rebuild=st.rebuild_on_draw)
+            bpy.ops.ed.undo_push(message="NX Loom: loop cut")
+            self.report({"INFO"}, "Loop inserted"
+                        + (" (closed)" if closed else ""))
+            return {"FINISHED"}
+        if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
+            self._cleanup(context)
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+
+class NXLOOM_OT_set_arc_type_key(bpy.types.Operator):
+    """Set the arc type for new strokes from a number key"""
+
+    bl_idname = "nxloom.set_arc_type_key"
+    bl_label = "Arc Type Hotkey"
+    bl_options = {"INTERNAL"}
+
+    kind: bpy.props.StringProperty(default="flow")
+
+    def execute(self, context):
+        context.scene.nx_loom.arc_type = self.kind
+        self.report({"INFO"}, f"Drawing {self.kind} arcs")
+        return {"FINISHED"}
+
+
 class NXLOOM_OT_hover(bpy.types.Operator):
     """Highlight the node or arc under the cursor"""
 
@@ -1439,6 +1632,9 @@ _CLASSES = (
     NXLOOM_OT_draw_arc,
     NXLOOM_OT_ring_cut,
     NXLOOM_OT_halo,
+    NXLOOM_OT_loop_cut,
+    NXLOOM_OT_repeat_ring,
+    NXLOOM_OT_set_arc_type_key,
     NXLOOM_OT_symmetrize_side,
     NXLOOM_OT_smooth_arcs,
     NXLOOM_OT_hover,

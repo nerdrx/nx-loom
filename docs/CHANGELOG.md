@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.20.0 — unreleased
+
+The first slice of the big usability pass: modeling speed.
+
+**Loop cut (C).** Hover an arc, press C, and a loop parallel to it previews
+through the entire quad strip — click to insert it. The layout version knows
+what a mesh knife cannot: which side of each patch is opposite, so the cut
+runs through each patch's own transfinite parameterisation and lands
+proportionally in curved or tapered patches; and where the strip honestly
+ends — it stops at poles, holes and boundaries, and closes into a ring when
+the strip wraps around. Committing reuses the crossing machinery, so every
+shared side it passes gets a proper junction.
+
+**Repeat ring (R).** After two ring cuts, R drops the next ring at the same
+spacing along the limb, bridged like the rest. A ladder down a leg: swipe,
+swipe, tap tap tap. Verified: rings at −1.0, −0.6 extrapolate to exactly
+−0.2.
+
+**Arc-type hotkeys (1–4).** Flow, crease, boundary, seam while drawing — no
+more dropdown round-trips.
+
+359 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.19.0 — unreleased
 
 **A line drawn through another line connects to it.** Crossing an existing arc

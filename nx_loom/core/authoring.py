@@ -178,7 +178,9 @@ def find_crossings(graph, path, radius, skip=()):
     total = cum[-1]
     if total <= 0:
         return []
-    end_zone = max(radius * 1.5, total * 0.05)
+    # near-absolute: a fraction-of-total zone swallows the first and last
+    # genuine crossings on a long stroke (a loop cut spans many patches)
+    end_zone = max(radius * 1.5, min(total * 0.05, radius * 4.0))
 
     found = []
     for aid, arc in graph.arcs.items():

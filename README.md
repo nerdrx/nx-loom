@@ -148,7 +148,7 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 349 headless
+layouts — including a layout *drawn from nothing* on a sphere. 359 headless
 checks plus 12 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
@@ -171,6 +171,9 @@ dropped and named in the report — never fudged into the mesh.
    | Drag | freehand arc |
    | Ctrl-Alt-drag | **ring cut** — swipe across a limb to loop it in one stroke; the next swipe bridges to it, so a tube is two swipes |
    | Ctrl-Alt-Shift-drag | **halo** — drag outward from a point to ring it; two concentric halos make an eye socket's loop band |
+   | C | **loop cut** — insert a loop through the whole quad strip, like Ctrl+R |
+   | R | repeat the last ring at the same spacing down the limb |
+   | 1–4 | switch arc type while drawing |
    | Ctrl-click | erase an arc / dissolve a node |
    | Shift-drag | move a node — drop it onto another node to merge them |
    | Alt-click | retype an arc (flow / crease / boundary / seam) |

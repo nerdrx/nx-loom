@@ -23,7 +23,9 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         "Ctrl+Alt+Wheel: more or less resolution inside one patch\n"
         "Alt+Shift: select an arc, then type its loop count in the sidebar\n"
         "Ctrl+Alt: swipe across a limb to ring it in one stroke\n"
-        "Ctrl+Alt+Shift: drag outward from a point to halo it (eyes, mouths)"
+        "Ctrl+Alt+Shift: drag outward from a point to halo it (eyes, mouths)\n"
+        "C: loop cut through the quad strip under the cursor     1-4: arc type\n"
+        "R: repeat the last ring at the same spacing"
     )
     bl_icon = "ops.mesh.knife_tool"
     bl_widget = None
@@ -36,6 +38,16 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         ("nxloom.halo",
          {"type": "LEFTMOUSE", "value": "PRESS",
           "ctrl": True, "alt": True, "shift": True}, None),
+        ("nxloom.loop_cut", {"type": "C", "value": "PRESS"}, None),
+        ("nxloom.repeat_ring", {"type": "R", "value": "PRESS"}, None),
+        ("nxloom.set_arc_type_key", {"type": "ONE", "value": "PRESS"},
+         {"properties": [("kind", "flow")]}),
+        ("nxloom.set_arc_type_key", {"type": "TWO", "value": "PRESS"},
+         {"properties": [("kind", "crease")]}),
+        ("nxloom.set_arc_type_key", {"type": "THREE", "value": "PRESS"},
+         {"properties": [("kind", "boundary")]}),
+        ("nxloom.set_arc_type_key", {"type": "FOUR", "value": "PRESS"},
+         {"properties": [("kind", "seam")]}),
         ("nxloom.move_node", {"type": "LEFTMOUSE", "value": "PRESS", "shift": True}, None),
         ("nxloom.set_arc_type",
          {"type": "LEFTMOUSE", "value": "PRESS", "alt": True}, None),

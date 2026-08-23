@@ -461,6 +461,9 @@ Blender binding is displaced:
 | Ctrl-Wheel | pin the loop count across the arc under the cursor |
 | Ctrl-Alt-Wheel | more or less resolution inside one patch |
 | Alt-Shift-click | select an arc, to type its loop count in the sidebar |
+| C | loop cut: preview and insert a loop through the quad strip under the cursor |
+| R | repeat the last ring cut at the same spacing |
+| 1–4 | arc type: flow / crease / boundary / seam |
 | Esc / RMB | end the chain; again to leave the tool |
 
 **Crossing an arc splits both.** A stroke that passes through an existing arc
@@ -501,6 +504,15 @@ low-passed out of the polyline, endpoints fixed, reprojected as it relaxes.
 Straight rails and cross-section rings never smooth — they have no stroke to
 be jittery. The deferred-rebuild queue stores the object's NAME; a bpy
 reference held across frames dies if the object is deleted first.
+
+**Loop cut** (`core/loopcut.py`): walks the quad strip both ways from the
+clicked arc, crossing each patch on the transfinite iso-curve at the clicked
+fraction (entry fraction f maps to 1−f on the opposite side — the sides run
+antiparallel around the boundary). Stops at non-quads, holes and boundaries;
+detects closure by revisiting the start. The planned polyline is committed
+through `commit_path`, whose crossing machinery makes the junctions — the walk
+plans, the commit builds. Closed loops commit as two halves (no free
+endpoints otherwise).
 
 **Ring bridging** (`bridge_rings` in contour + `ops.draw.bridge_rings`): each
 new ring auto-connects to the previous one with four straight-rail wall arcs.
