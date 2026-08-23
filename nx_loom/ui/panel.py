@@ -251,6 +251,7 @@ class NXLOOM_PT_symmetry(_Sub, bpy.types.Panel):
         if st.symmetry_axis == "NONE":
             return
         layout.prop(st, "symmetry_tolerance")
+        layout.prop(st, "seam_snap")
         graph = get_graph(active_object(context))
         if graph is not None:
             from ..core.symmetry import unpaired_arcs

@@ -246,6 +246,15 @@ splits arcs that cross it, adopts hand-drawn counterparts as twins (positive
 side is always the source, so the choice is deterministic), and mirrors
 whatever is left.
 
+**The mirrored half is edited through its source.** Every gesture that would
+modify derived geometry redirects to the authored element behind it
+(`symmetry.source_arc` / `source_node`): erasing kills both halves for good,
+dragging drives the source with the reflected position, merging merges
+sources, and a stroke that attaches to mirrored geometry is reflected
+wholesale and committed authored — sync puts it back where the hand drew it.
+Operating on derived elements directly creates zombies (sync regenerates
+them) or orphaned stubs; nothing may do it.
+
 **Regenerated derived geometry keeps its identity.** When sync rebuilds a
 mirror because its source changed, the new arc and its nodes take the OLD ids,
 and the pin carries over — everything keyed on a derived element (locks, delta

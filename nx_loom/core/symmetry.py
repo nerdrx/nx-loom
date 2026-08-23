@@ -571,6 +571,24 @@ def mismatched_twins(graph, axis, rel_tol=0.05):
     return out
 
 
+def source_arc(graph, aid):
+    """The authored arc behind a derived one — itself if already authored."""
+    arc = graph.arcs.get(aid)
+    if arc is not None and arc.mirror_of is not None \
+            and arc.mirror_of in graph.arcs:
+        return arc.mirror_of
+    return aid
+
+
+def source_node(graph, nid):
+    """The authored node behind a derived one — itself if already authored."""
+    node = graph.nodes.get(nid)
+    if node is not None and node.mirror_of is not None \
+            and node.mirror_of in graph.nodes:
+        return node.mirror_of
+    return nid
+
+
 def representative(graph):
     """Map every arc to the arc whose subdivision count it must copy.
 

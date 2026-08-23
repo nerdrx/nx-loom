@@ -171,6 +171,14 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "snapped onto it and shared by both halves",
         default=0.002, min=0.0, max=1.0, precision=4, unit="LENGTH",
     )
+    seam_snap: BoolProperty(
+        name="Snap to Seam",
+        description="Clicks and drags near the symmetry plane land exactly on "
+                    "it. Turn off (or hold Ctrl while clicking in the draw "
+                    "tool) to place geometry deliberately close to the middle "
+                    "without being pulled onto it",
+        default=True,
+    )
     mirror_edits: BoolProperty(
         name="Mirror Hand Edits",
         description="Copy captured vertex edits across the symmetry plane. "

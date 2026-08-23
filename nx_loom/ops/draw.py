@@ -60,7 +60,8 @@ def _snap_radius(context, point):
 def _seam_plane(context, point):
     """(axis_index, world snap reach) at this point, or None without symmetry."""
     st = context.scene.nx_loom
-    if st.symmetry_axis == "NONE" or point is None:
+    if st.symmetry_axis == "NONE" or point is None \
+            or not getattr(st, "seam_snap", True):
         return None
     from ..core.symmetry import AXIS_INDEX
     reach = pixel_radius_world(context.region, context.space_data.region_3d,
@@ -99,6 +100,29 @@ def commit_path(graph, surface, path, snap_radius, min_step,
     path = np.asarray(path, dtype=float)
     if len(path) < 2:
         return None
+
+    # A stroke that attaches to the mirrored half is redirected wholesale:
+    # reflect it across the plane and commit on the authored side, and sync
+    # mirrors it back to where the hand drew it. Committing against derived
+    # geometry directly would split derived arcs into orphaned authored
+    # stubs that fight the next sync.
+    if plane is not None and start_node is None:
+        ax = plane[0]
+
+        def _derived_at(pt):
+            hit = nearest_node(graph, pt, snap_radius)
+            if hit is not None:
+                return graph.nodes[hit[0]].mirror_of is not None
+            hit = nearest_on_arc(graph, pt, snap_radius)
+            if hit is not None:
+                return graph.arcs[hit[0]].mirror_of is not None
+            return False
+
+        if _derived_at(path[0]) or _derived_at(path[-1]):
+            path = np.asarray(path, dtype=float).copy()
+            path[:, ax] *= -1.0
+            if surface is not None:
+                path = np.asarray(surface.project(path), dtype=float)
 
     a = start_node
     if a is None:
@@ -258,8 +282,8 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
 
     def _status(self, context):
         context.workspace.status_text_set(
-            "Click: chain segment   Drag: freehand   "
-            "Esc/RMB: end chain, again to finish   Enter: finish"
+            "Click: chain segment   Drag: freehand   Ctrl+Click: no seam snap"
+            "   Esc/RMB: end chain, again to finish   Enter: finish"
         )
 
     def _surface_point(self, context, event):
@@ -327,10 +351,12 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         # already-traced path through _commit_traced and stays "surface"
         probe = trace_rays(self.surface, rays[-1:])
         end = probe[0] if len(probe) else None
+        plane = None if getattr(self, "_ctrl_click", False) \
+            else _seam_plane(context, end)
         res = commit_arc(self.graph, self.surface, rays, radius, self.min_step,
                          arc_type=context.scene.nx_loom.arc_type,
                          start_node=self.anchor, rail="straight",
-                         plane=_seam_plane(context, end))
+                         plane=plane)
         return self._after_commit(context, res)
 
     def _after_commit(self, context, res):
@@ -420,6 +446,7 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
 
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self.pressed = False
+            self._ctrl_click = bool(event.ctrl)
             ray = _mouse_ray(context, event)
             if self.dragging:
                 pts = trace_rays(self.surface, [ray],
@@ -435,9 +462,10 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
                 if point is not None:
                     if self.anchor is None:
                         radius = _snap_radius(context, point)
+                        plane = None if event.ctrl \
+                            else _seam_plane(context, point)
                         self.anchor = resolve_anchor(self.graph, point, radius,
-                                                     self.surface,
-                                                     _seam_plane(context, point))[0]
+                                                     self.surface, plane)[0]
                         self.touched = True
                         refresh(active_object(context), self.graph, context,
                                 rebuild=False)
@@ -503,9 +531,14 @@ class NXLOOM_OT_erase(bpy.types.Operator):
         if point is None:
             return {"CANCELLED"}
 
+        from ..core.symmetry import source_arc, source_node
         node = nearest_node(graph, point, _pick_radius(context, point))
         if node is not None:
-            nid = node[0]
+            # Erasing the mirrored half used to be a zombie hunt: the derived
+            # copy came straight back on the next sync. Every destructive
+            # gesture on derived geometry redirects to its authored source —
+            # both halves go, and stay gone.
+            nid = source_node(graph, node[0])
             valence = graph.valence().get(nid, 0)
             if valence == 2 and dissolve_node(graph, nid, surface) is not None:
                 refresh(obj, graph, context)
@@ -524,7 +557,7 @@ class NXLOOM_OT_erase(bpy.types.Operator):
         if hit is None:
             self.report({"WARNING"}, "Nothing under the cursor to erase")
             return {"CANCELLED"}
-        remove_arc(graph, hit[0])
+        remove_arc(graph, source_arc(graph, hit[0]))
         refresh(obj, graph, context)
         self.report({"INFO"}, f"Arc removed — {len(graph.patches)} patches")
         return {"FINISHED"}
@@ -558,7 +591,17 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
                         "No layout node under the cursor — raise Pick in the "
                         "Display panel if nodes are hard to grab")
             return {"CANCELLED"}
+        # Dragging a mirrored node used to hold until some later edit
+        # regenerated the mirror and silently reverted it. The drag drives the
+        # authored source with the mirrored position instead — and moves the
+        # grabbed copy too, so the hand still sees what it is doing.
+        from ..core.symmetry import AXIS_INDEX, source_node
         self.nid = hit[0]
+        self.src_nid = source_node(self.graph, self.nid)
+        self.mirror_ax = None
+        if self.src_nid != self.nid \
+                and context.scene.nx_loom.symmetry_axis != "NONE":
+            self.mirror_ax = AXIS_INDEX[context.scene.nx_loom.symmetry_axis]
         self.start = np.array(self.graph.nodes[self.nid].co, dtype=float)
         self.merge_target = None
         # frozen copies of the incident arcs: sliding must follow the lines
@@ -618,6 +661,12 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
                     overlay.set_seam(point if on_seam else None)
                 move_node(self.graph, self.nid, point, self.surface,
                           falloff=context.scene.nx_loom.node_falloff)
+                if self.mirror_ax is not None:
+                    reflected = np.asarray(point, dtype=float).copy()
+                    reflected[self.mirror_ax] *= -1.0
+                    move_node(self.graph, self.src_nid, reflected,
+                              self.surface,
+                              falloff=context.scene.nx_loom.node_falloff)
                 overlay.set_preview(snap=point)
                 set_graph(active_object(context), self.graph)
                 overlay.mark_dirty()
@@ -629,9 +678,13 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
             overlay.clear_hover()
             overlay.set_seam(None)
             if self.merge_target is not None:
+                from ..core.symmetry import source_node
+                a = source_node(self.graph, self.nid)
+                b = source_node(self.graph, self.merge_target)
                 collapsed = merge_nodes(
-                    self.graph, self.nid, self.merge_target, self.surface,
-                    falloff=context.scene.nx_loom.node_falloff)
+                    self.graph, a, b, self.surface,
+                    falloff=context.scene.nx_loom.node_falloff) \
+                    if a != b else None
                 if collapsed is not None:
                     self.report({"INFO"},
                                 "Nodes merged"
@@ -642,6 +695,11 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
             move_node(self.graph, self.nid, self.start, self.surface,
                       falloff=context.scene.nx_loom.node_falloff)
+            if self.mirror_ax is not None:
+                reflected = self.start.copy()
+                reflected[self.mirror_ax] *= -1.0
+                move_node(self.graph, self.src_nid, reflected, self.surface,
+                          falloff=context.scene.nx_loom.node_falloff)
             set_graph(active_object(context), self.graph)
             context.window.cursor_modal_restore()
             context.workspace.status_text_set(None)
@@ -674,6 +732,9 @@ class NXLOOM_OT_set_arc_type(bpy.types.Operator):
         if hit is None:
             self.report({"WARNING"}, "No arc under the cursor")
             return {"CANCELLED"}
+        from ..core.symmetry import source_arc
+        src_id = source_arc(graph, hit[0])
+        graph.arcs[src_id].type = context.scene.nx_loom.arc_type
         graph.arcs[hit[0]].type = context.scene.nx_loom.arc_type
         set_graph(obj, graph)
         overlay.mark_dirty()
@@ -790,7 +851,9 @@ class NXLOOM_OT_select_arc(bpy.types.Operator):
             set_active_arc(obj, None)
             self.report({"INFO"}, "Nothing selected")
             return {"CANCELLED"}
-        set_active_arc(obj, hit[0])
+        from ..core.symmetry import source_arc
+        set_active_arc(obj, source_arc(graph, hit[0]))
+        hit = (source_arc(graph, hit[0]),) + tuple(hit[1:])
         _sync_active_loops(context, graph, hit[0])
         arc = graph.arcs[hit[0]]
         self.report({"INFO"}, f"Arc {hit[0]}: {arc.n} loops"

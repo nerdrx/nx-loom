@@ -101,6 +101,11 @@ Set an axis and draw one half. The mirror is part of the *document*, so both
 halves share the nodes sitting on the plane and the seam is welded by
 construction — no mirror-weld pass, no doubles to merge.
 
+Work on either half — every edit to the mirrored side acts on its authored
+source, so nothing zombies back or silently reverts. Near the centre line,
+clicks snap exactly onto the seam (hold Ctrl, or toggle Snap to Seam off, to
+place things deliberately close instead).
+
 Counts are solved over one half and copied, and generated positions are forced
 into exact mirror pairs, so the result is **bit-exact (0.0 mirror error) at
 every density** rather than approximately symmetric. That distinction matters:
@@ -148,7 +153,7 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 385 headless
+layouts — including a layout *drawn from nothing* on a sphere. 395 headless
 checks plus 16 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.

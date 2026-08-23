@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.25.0 — unreleased
+
+**The mirrored half stops being a trap.** "Doing stuff near the symmetry line
+can be so annoying" — reported, and warranted. Three traps removed:
+
+- **No more zombie arcs.** Erasing a mirrored arc used to bring it straight
+  back on the next sync. Every destructive gesture on derived geometry now
+  redirects to its authored source — erase, dissolve, merge, retype, select —
+  so acting on either half is acting on the document, and things you delete
+  stay deleted.
+- **No more reverting drags.** Moving a mirrored node used to hold only until
+  some later edit regenerated the mirror and silently threw your move away.
+  Dragging the mirrored half now drives the authored source with the
+  reflected position — your side follows live, and the change is permanent.
+- **Drawing works on either half.** A stroke attached to mirrored geometry
+  used to decay into orphaned stubs that fought the next sync. It is now
+  reflected wholesale and committed on the authored side; sync mirrors it
+  back to exactly where your hand drew it. Nothing ends up unpaired.
+
+**And the seam snap learned manners.** `Snap to Seam` can be turned off in the
+Symmetry panel, and holding **Ctrl while clicking** in the draw tool bypasses
+it for that click — so you can finally place geometry deliberately close to
+the middle without being yanked onto it.
+
+395 headless checks + 16 GUI checks; sweep 122/122.
+
+
 ## 0.24.0 — unreleased
 
 A full audit — hunting by the bug families this project has actually produced.
