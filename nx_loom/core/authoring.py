@@ -101,10 +101,12 @@ def split_arc(graph, aid, index, t, surface=None):
 
 # -- picking ---------------------------------------------------------------
 
-def nearest_node(graph, point, radius):
+def nearest_node(graph, point, radius, skip=()):
     point = np.asarray(point, dtype=float)
     best = None
     for nid, node in graph.nodes.items():
+        if nid in skip:
+            continue
         d = float(np.linalg.norm(node.co - point))
         if d <= radius and (best is None or d < best[1]):
             best = (nid, d)
@@ -295,6 +297,38 @@ def move_node(graph, nid, co, surface=None, falloff=1.0):
         arc.path = path
         if surface is not None:
             arc.pins = [surface.pin(pt) for pt in path]
+
+
+def merge_nodes(graph, src, dst, surface=None, falloff=1.0):
+    """Weld node ``src`` onto ``dst``. Returns collapsed-arc count, or None.
+
+    The dragged node is first *moved* onto the target — which re-lays straight
+    segments end to end and bends freehand strokes, exactly as any drag does —
+    then every arc endpoint is re-anchored to the target and the node goes
+    away. An arc that directly connected the two (now a loop of zero extent)
+    collapses. Two surviving arcs sharing both endpoints are left alone: two
+    different routes between the same nodes is legitimate geometry — the two
+    halves of a ring are exactly that.
+    """
+    if src == dst or src not in graph.nodes or dst not in graph.nodes:
+        return None
+    move_node(graph, src, graph.nodes[dst].co, surface, falloff)
+    collapsed = 0
+    for aid, arc in list(graph.arcs.items()):
+        if arc.a == src:
+            arc.a = dst
+            if arc.pins:
+                arc.pins[0] = graph.nodes[dst].pin
+        if arc.b == src:
+            arc.b = dst
+            if arc.pins:
+                arc.pins[-1] = graph.nodes[dst].pin
+        if arc.a == dst and arc.b == dst:
+            del graph.arcs[aid]
+            collapsed += 1
+    del graph.nodes[src]
+    prune_orphan_nodes(graph)
+    return collapsed
 
 
 def dissolve_node(graph, nid, surface=None):

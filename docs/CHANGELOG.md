@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.0 — unreleased
+
+**Merge by dropping.** Shift-drag a node onto another and they weld: the
+target highlights in amber while you hover it, the dragged node's arcs
+re-anchor (straight segments re-lay, freehand strokes bend, exactly as any
+drag does), a direct connector between the two collapses, and locks and arc
+types survive the move. A merge target outranks the seam snap — welding is
+the more specific intent.
+
+Two surviving arcs between the same pair of nodes are deliberately left
+alone: two different routes between the same nodes is legitimate geometry —
+the two halves of a ring are exactly that.
+
+337 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.16.1 — unreleased
 
 **Nudging a vertex can no longer un-solve the layout.** Reported: push a node

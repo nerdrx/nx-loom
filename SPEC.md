@@ -455,7 +455,7 @@ Blender binding is displaced:
 | Ctrl-click | erase the arc under the cursor, or dissolve a valence-2 node |
 | Ctrl-Alt-drag | ring cut: swipe across a limb to loop it in one stroke |
 | Ctrl-Alt-Shift-drag | halo: drag outward from a point to ring it (eyes, mouths) |
-| Shift-drag | move the node under the cursor along the surface |
+| Shift-drag | move the node under the cursor along the surface; drop it on another node to merge them |
 | Alt-click | give the arc under the cursor the current arc type |
 | Ctrl-Shift-click | toggle a patch between filled and a hole |
 | Ctrl-Wheel | pin the loop count across the arc under the cursor |

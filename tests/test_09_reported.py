@@ -182,6 +182,7 @@ def run():
     out += run_point_and_drag()
     out += run_move_and_pick()
     out += run_loose_points()
+    out += run_merge_nodes()
     return out
 
 
@@ -456,4 +457,99 @@ def run_loose_points():
     out.append(("saving invalidates the peek", g3 is not g1
                 and len(g3.nodes) == len(g1.nodes) + 1,
                 f"{len(g1.nodes)} -> {len(g3.nodes)}"))
+    return out
+
+
+def run_merge_nodes():
+    """Dropping a dragged node onto another welds them."""
+    from nx_loom.core.authoring import merge_nodes
+    from nx_loom.ops.layout import rebuild_object, set_graph
+
+    out = []
+
+    # unit: a triangle corner merged into another — the connector collapses,
+    # every other arc re-anchors, and nothing dangles
+    g = LayoutGraph()
+    n = [A.new_node(g, c) for c in ([0, 0, 0], [2, 0, 0], [1, 1.5, 0])]
+    for i in range(3):
+        a, b = n[i], n[(i + 1) % 3]
+        A.add_arc(g, a, b, np.array([g.nodes[a].co, g.nodes[b].co]),
+                  rail="straight")
+    collapsed = merge_nodes(g, n[2], n[1])
+    dangling = [aid for aid, arc in g.arcs.items()
+                if arc.a not in g.nodes or arc.b not in g.nodes]
+    out.append(("the connecting arc collapses on merge",
+                collapsed == 1 and len(g.arcs) == 2, f"{collapsed} collapsed"))
+    out.append(("surviving arcs re-anchor to the target",
+                not dangling and all(
+                    np.allclose(arc.path[0], g.nodes[arc.a].co)
+                    and np.allclose(arc.path[-1], g.nodes[arc.b].co)
+                    for arc in g.arcs.values()), str(dangling)))
+    out.append(("self-merge is refused", merge_nodes(g, n[0], n[0]) is None, ""))
+
+    # a loose point merged away entirely
+    g2 = LayoutGraph()
+    a = A.new_node(g2, [0, 0, 0])
+    b = A.new_node(g2, [1, 0, 0])
+    merge_nodes(g2, a, b)
+    out.append(("a loose point merges away cleanly",
+                a not in g2.nodes and len(g2.nodes) <= 1, ""))
+
+    # integration: merge two adjacent nodes of a built grid layout — the two
+    # neighbouring quads become triangles and the mesh must still build clean
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=3, y_subdivisions=3, size=2.0)
+    st = bpy.context.scene.nx_loom
+    st.target_edge = 0.3
+    st.relax_iters = 2
+    st.reproject = False
+    st.size_mode = "EDGE"
+    st.symmetry_axis = "NONE"
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.nxloom.layout_from_selection()
+    if bpy.context.active_object.mode == "EDIT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    obj = bpy.context.active_object
+    from nx_loom.ops.layout import get_graph as _gg
+    graph = _gg(obj)
+    n_nodes = len(graph.nodes)
+    # pick two directly connected nodes
+    arc0 = next(iter(graph.arcs.values()))
+    src, dst = arc0.a, arc0.b
+    merge_nodes(graph, src, dst)
+    set_graph(obj, graph)
+    rep = rebuild_object(obj, bpy.context)
+    graph = _gg(obj)
+    out.append(("merging two grid corners keeps a buildable layout",
+                len(graph.nodes) == n_nodes - 1
+                and rep["quads"] > 0
+                and not rep["unsatisfied_patches"],
+                f"{rep['quads']} quads, unsat {rep['unsatisfied_patches']}"))
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    nm = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+    nq = sum(1 for f in bm.faces if len(f.verts) != 4)
+    bm.free()
+    out.append(("and the mesh stays clean quads",
+                nm == 0 and nq == 0, f"nm={nm} nonquad={nq}"))
+
+    # ring halves survive: merging two adjacent ring nodes leaves two arcs
+    # between the same pair — two different routes, both legitimate
+    g3 = LayoutGraph()
+    ring = [A.new_node(g3, [np.cos(t), np.sin(t), 0.0])
+            for t in np.linspace(0, 2 * np.pi, 4, endpoint=False)]
+    for i in range(4):
+        a, b = ring[i], ring[(i + 1) % 4]
+        pts = np.array([g3.nodes[a].co, g3.nodes[b].co])
+        A.add_arc(g3, a, b, pts)
+    merge_nodes(g3, ring[1], ring[0])
+    pairs = {}
+    for arc in g3.arcs.values():
+        key = tuple(sorted((arc.a, arc.b)))
+        pairs[key] = pairs.get(key, 0) + 1
+    out.append(("ring halves are kept, not deduplicated",
+                len(g3.arcs) == 3 and max(pairs.values()) <= 2,
+                f"{len(g3.arcs)} arcs, pair counts {sorted(pairs.values())}"))
     return out

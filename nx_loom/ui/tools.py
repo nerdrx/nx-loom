@@ -16,7 +16,8 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
     bl_description = (
         "Draw layout arcs on the reference surface.\n"
         "Click to chain straight segments, drag to draw freehand.\n"
-        "Ctrl: erase arc / dissolve node     Shift: drag a node\n"
+        "Ctrl: erase arc / dissolve node     Shift: drag a node "
+        "(drop it on another node to merge them)\n"
         "Ctrl+Shift: toggle a patch between filled and a hole\n"
         "Ctrl+Wheel: pin the loop count across the arc under the cursor\n"
         "Ctrl+Alt+Wheel: more or less resolution inside one patch\n"

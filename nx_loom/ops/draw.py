@@ -12,9 +12,9 @@ import numpy as np
 from mathutils import Vector
 
 from ..core.authoring import (add_arc, decimate, dissolve_node, fair_path,
-                              move_node, nearest_node, nearest_on_arc,
-                              new_node, plane_snap, remove_arc, remove_node,
-                              resolve_anchor)
+                              merge_nodes, move_node, nearest_node,
+                              nearest_on_arc, new_node, plane_snap,
+                              remove_arc, remove_node, resolve_anchor)
 from ..core.graph import GRAPH_KEY
 from ..core.picking import (interp_rays, pixel_radius_world, ray_surface,
                             screen_ray, trace_rays)
@@ -491,8 +491,11 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
             return {"CANCELLED"}
         self.nid = hit[0]
         self.start = np.array(self.graph.nodes[self.nid].co, dtype=float)
+        self.merge_target = None
         context.window.cursor_modal_set("SCROLL_XY")
         context.window_manager.modal_handler_add(self)
+        context.workspace.status_text_set(
+            "Drag along the surface — drop onto another node to merge")
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
@@ -500,9 +503,26 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
             origin, direction = _mouse_ray(context, event)
             point = ray_surface(self.surface, origin, direction)
             if point is not None:
-                point, on_seam = plane_snap(point, _seam_plane(context, point),
-                                            self.surface)
-                overlay.set_seam(point if on_seam else None)
+                # Dropping onto another node welds them — armed whenever the
+                # cursor is within pick range of one, shown as its highlight.
+                # A merge target outranks the seam snap: welding is the more
+                # specific intent.
+                tgt = nearest_node(self.graph, point,
+                                   _pick_radius(context, point),
+                                   skip=(self.nid,))
+                self.merge_target = tgt[0] if tgt else None
+                if self.merge_target is not None:
+                    tco = np.asarray(
+                        self.graph.nodes[self.merge_target].co, dtype=float)
+                    overlay.set_hover(node=tco)
+                    overlay.set_seam(None)
+                    point = tco
+                else:
+                    overlay.set_hover()
+                    point, on_seam = plane_snap(point,
+                                                _seam_plane(context, point),
+                                                self.surface)
+                    overlay.set_seam(point if on_seam else None)
                 move_node(self.graph, self.nid, point, self.surface,
                           falloff=context.scene.nx_loom.node_falloff)
                 overlay.set_preview(snap=point)
@@ -511,8 +531,19 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
             return {"RUNNING_MODAL"}
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             context.window.cursor_modal_restore()
+            context.workspace.status_text_set(None)
             overlay.clear_preview()
+            overlay.clear_hover()
             overlay.set_seam(None)
+            if self.merge_target is not None:
+                collapsed = merge_nodes(
+                    self.graph, self.nid, self.merge_target, self.surface,
+                    falloff=context.scene.nx_loom.node_falloff)
+                if collapsed is not None:
+                    self.report({"INFO"},
+                                "Nodes merged"
+                                + (f", {collapsed} connecting arc(s) collapsed"
+                                   if collapsed else ""))
             refresh(active_object(context), self.graph, context)
             return {"FINISHED"}
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
@@ -520,6 +551,8 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
                       falloff=context.scene.nx_loom.node_falloff)
             set_graph(active_object(context), self.graph)
             context.window.cursor_modal_restore()
+            context.workspace.status_text_set(None)
+            overlay.clear_hover()
             overlay.clear_preview()
             refresh(active_object(context), self.graph, context)
             return {"CANCELLED"}
