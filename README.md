@@ -148,7 +148,7 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 342 headless
+layouts — including a layout *drawn from nothing* on a sphere. 349 headless
 checks plus 12 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
@@ -185,8 +185,9 @@ dropped and named in the report — never fudged into the mesh.
    near the centre line snaps *exactly* onto it — a cyan "mid" marker shows
    when the snap is armed.
 
-   Strokes snap to existing nodes, and ending one on an existing arc splits it
-   into a T-junction. Enclose an area and it becomes a patch, filled at once —
+   Strokes snap to existing nodes; ending one on an existing arc splits it
+   into a T-junction, and drawing **through** an arc splits both at a shared
+   crossing. Enclose an area and it becomes a patch, filled at once —
    including a plain closed ring round a limb, which needs no corners. Mark
    eye sockets and mouth openings as **holes** and they stay empty.
 

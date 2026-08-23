@@ -12,9 +12,10 @@ import numpy as np
 from mathutils import Vector
 
 from ..core.authoring import (add_arc, decimate, dissolve_node, fair_path,
-                              merge_nodes, move_node, nearest_node,
-                              nearest_on_arc, new_node, plane_snap,
-                              remove_arc, remove_node, resolve_anchor)
+                              find_crossings, merge_nodes, move_node,
+                              nearest_node, nearest_on_arc, new_node,
+                              plane_snap, remove_arc, remove_node,
+                              resolve_anchor)
 from ..core.graph import GRAPH_KEY
 from ..core.picking import (interp_rays, pixel_radius_world, ray_surface,
                             screen_ray, trace_rays)
@@ -112,7 +113,29 @@ def commit_path(graph, surface, path, snap_radius, min_step,
         project = surface.project if surface is not None else None
         path = fair_path(path, iters=max(int(round(smooth * 24)), 1),
                          strength=0.5, project=project)
-    aid = add_arc(graph, a, b, path, surface, type=arc_type, rail=rail)
+
+    # A line drawn THROUGH an existing arc must connect to it, exactly as a
+    # line ending ON one does. Without the shared junction the layout is
+    # non-planar and patch discovery silently mis-traverses it. Each crossing
+    # splits the existing arc (resolve_anchor's job) and cuts this path, so
+    # both routes meet at one node.
+    crossings = find_crossings(graph, path, max(min_step, snap_radius * 0.5))
+    prev_node, prev_idx = a, 0
+    made = []
+    for _dist, k, pt in crossings:
+        nid = resolve_anchor(graph, pt, snap_radius, surface)[0]
+        if nid == prev_node or nid == b:
+            continue
+        sub = path[prev_idx:k + 1]
+        if len(sub) < 2:
+            sub = np.vstack([graph.nodes[prev_node].co, graph.nodes[nid].co])
+        made.append(add_arc(graph, prev_node, nid, sub, surface,
+                            type=arc_type, rail=rail))
+        prev_node, prev_idx = nid, k
+    sub = path[prev_idx:]
+    if len(sub) < 2:
+        sub = np.vstack([graph.nodes[prev_node].co, graph.nodes[b].co])
+    aid = add_arc(graph, prev_node, b, sub, surface, type=arc_type, rail=rail)
     return aid, a, b
 
 

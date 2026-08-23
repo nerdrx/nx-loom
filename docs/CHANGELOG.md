@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.19.0 — unreleased
+
+**A line drawn through another line connects to it.** Crossing an existing arc
+now splits both at a shared junction, exactly as ending on one always has —
+click-segments and freehand strokes alike, with multiple crossings handled in
+order along the stroke. A crossing that lands near an existing node reuses it
+instead of stacking a near-duplicate.
+
+This was a correctness hole, not just a convenience: a line floating over
+another makes the layout non-planar, and patch discovery silently
+mis-traverses it. Verified on the reported case — a diagonal drawn
+corner-to-corner through a region's middle arc now meets it at a valence-4
+junction and the region builds clean quads.
+
+349 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.18.0 — unreleased
 
 **A fully mirrored layout can no longer fail on one side.** Reported with a

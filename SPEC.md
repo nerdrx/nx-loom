@@ -463,6 +463,15 @@ Blender binding is displaced:
 | Alt-Shift-click | select an arc, to type its loop count in the sidebar |
 | Esc / RMB | end the chain; again to leave the tool |
 
+**Crossing an arc splits both.** A stroke that passes through an existing arc
+gets a shared junction there (`authoring.find_crossings` +
+`commit_path`): a contiguous run of stroke samples within reach of one arc is
+one crossing, runs touching the stroke's ends are the anchors' business, and a
+crossing near an existing node reuses it. A line floating over another makes
+the layout non-planar and discovery mis-traverses it, so this is correctness,
+not convenience. Ring cuts and halos do not crossing-split (they are placed on
+open ground; revisit if that assumption dies).
+
 Straight segments are traced by **interpolating rays, not world positions** —
 every sample is re-cast at the surface, so a segment drawn across a bulge wraps
 over it instead of tunnelling through. A ray crossing a limb hits the near

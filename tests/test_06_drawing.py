@@ -211,4 +211,97 @@ def run():
                 str(attached)))
     out.append(("moved node stays pinned to the surface",
                 graph.nodes[nid].pin is not None, ""))
+
+    out += run_crossings()
+    return out
+
+
+def run_crossings():
+    """A line drawn through another line connects to it.
+
+    Without the shared junction the layout is non-planar and discovery
+    mis-traverses it — the drawn diagonal in the report just floated over the
+    patch's middle arc.
+    """
+    import bmesh
+
+    from nx_loom.ops.layout import rebuild_object, set_graph
+
+    out = []
+
+    # unit-level, flat: one segment crossed by another -> an X with a shared
+    # valence-4 junction, both originals split
+    src, obj, surface = _setup()
+    graph = get_graph(obj)
+    _draw(graph, surface, (1, 0, 0), (0, 1, 0))
+    n_nodes, n_arcs = len(graph.nodes), len(graph.arcs)
+    res = _draw(graph, surface, (1, 1, -1), (1, 1, 1))   # crosses the first
+    out.append(("drawing through an arc yields four arcs",
+                res is not None and len(graph.arcs) == n_arcs + 3
+                and len(graph.nodes) == n_nodes + 3,
+                f"{len(graph.arcs)} arcs, {len(graph.nodes)} nodes"))
+    val = graph.valence()
+    junctions = [n for n, v in val.items() if v == 4]
+    out.append(("they meet at one valence-4 junction", len(junctions) == 1,
+                f"valences {sorted(val.values())}"))
+
+    # the reported case: a quad region with a mid arc, then a diagonal drawn
+    # corner-to-corner straight through it
+    src, obj, surface = _setup()
+    graph = get_graph(obj)
+    corners = [(1, 0, 0), (0, 1, 0), (-0.4, 0.4, 0.8), (0.4, -0.4, 0.8)]
+    ids = {}
+    for i in range(4):
+        _draw(graph, surface, corners[i], corners[(i + 1) % 4])
+    # the mid arc across the region
+    m0 = np.array([0.7, -0.2, 0.4])
+    m1 = np.array([-0.2, 0.7, 0.4])
+    m0, m1 = m0 / np.linalg.norm(m0), m1 / np.linalg.norm(m1)
+    _draw(graph, surface, tuple(m0), tuple(m1))
+    arcs_before = len(graph.arcs)
+    # the diagonal through it
+    res = _draw(graph, surface, corners[0], corners[2])
+    out.append(("the diagonal connects to the arc it crosses",
+                res is not None and len(graph.arcs) >= arcs_before + 3,
+                f"{arcs_before} -> {len(graph.arcs)} arcs"))
+    val = graph.valence()
+    out.append(("with a real junction where they meet",
+                any(v >= 4 for v in val.values()),
+                f"max valence {max(val.values())}"))
+
+    set_graph(obj, graph)
+    rep = rebuild_object(obj, bpy.context)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    nm = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+    nq = sum(1 for f in bm.faces if len(f.verts) != 4)
+    F = len(bm.faces)
+    bm.free()
+    out.append(("and the crossed region builds clean quads",
+                F > 0 and nm == 0 and nq == 0 and not rep["unsatisfied_patches"],
+                f"{F} faces, nm={nm}, unsat {rep['unsatisfied_patches']}"))
+
+    # a line through TWO parallels becomes three arcs with two junctions
+    src, obj, surface = _setup()
+    graph = get_graph(obj)
+    _draw(graph, surface, (1, 0, -0.35), (0, 1, -0.35))
+    _draw(graph, surface, (1, 0, 0.35), (0, 1, 0.35))
+    res = _draw(graph, surface, (0.9, 0.1, -0.7), (0.1, 0.9, 0.7))
+    val = graph.valence()
+    out.append(("crossing two parallels makes two junctions",
+                sum(1 for v in val.values() if v == 4) == 2
+                and len(graph.arcs) == 7,
+                f"{len(graph.arcs)} arcs, valences {sorted(val.values())}"))
+
+    # ending ON an arc is still the anchors' business — exactly one T node
+    src, obj, surface = _setup()
+    graph = get_graph(obj)
+    _draw(graph, surface, (1, 0, 0), (0, 1, 0))
+    mid = np.array([1.0, 1.0, 0.0])
+    mid = mid / np.linalg.norm(mid)
+    _draw(graph, surface, (0.6, 0.6, 0.8), tuple(mid))
+    val = graph.valence()
+    out.append(("a T-junction end is not double-cut",
+                len(graph.arcs) == 3 and sorted(val.values()) == [1, 1, 1, 3],
+                f"{len(graph.arcs)} arcs, valences {sorted(val.values())}"))
     return out
