@@ -795,10 +795,37 @@ def _sync_active_loops(context, graph, aid):
     """Show the selected arc's count in the panel without re-applying it."""
     st = context.scene.nx_loom
     arc = graph.arcs.get(aid) if graph else None
-    if arc is None or arc.n is None:
+    if arc is None:
+        return
+    bias = float(getattr(arc, "bias", 0.0) or 0.0)
+    if abs(float(st.active_bias) - bias) > 1e-6:
+        st["active_bias"] = bias             # bypass the update callback
+    if arc.n is None:
         return
     if int(st.active_loops) != int(arc.n):
         st["active_loops"] = int(arc.n)      # bypass the update callback
+
+
+def apply_active_bias(context, value):
+    """Type a spacing bias for the selected arc — loops pinch toward one
+    end without the count changing, so the solve is untouched."""
+    obj = active_object(context)
+    if obj is None or GRAPH_KEY not in obj:
+        return
+    aid = active_arc(obj)
+    graph = get_graph(obj)
+    if graph is None or aid is None or aid not in graph.arcs:
+        return
+    arc = graph.arcs[aid]
+    target = graph.arcs.get(arc.mirror_of) if arc.mirror_of is not None \
+        else arc
+    if target is None or abs(getattr(target, "bias", 0.0) - value) < 1e-6:
+        return
+    target.bias = float(value)
+    if target is not arc:
+        arc.bias = float(value)
+    set_graph(obj, graph)
+    queue_rebuild(obj)
 
 
 def _deferred_rebuild():
@@ -1876,6 +1903,101 @@ class NXLOOM_OT_toggle_hole(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NXLOOM_OT_toggle_freeze(bpy.types.Operator):
+    """Mark the patch under the cursor as done — its loop counts are pinned
+    wholesale and no later solve will touch them — or thaw it again"""
+
+    bl_idname = "nxloom.toggle_freeze"
+    bl_label = "Freeze Patch"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        if graph is None or not graph.patches:
+            return {"CANCELLED"}
+        pid = _patch_under(context, obj, graph, event)
+        if pid is None:
+            self.report({"WARNING"}, "No patch under the cursor")
+            return {"CANCELLED"}
+        flag = not graph.is_frozen(pid)
+        graph.set_frozen(pid, flag)
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"},
+                    f"Patch {pid} {'frozen — the solver will hold its '
+                    'counts' if flag else 'thawed'}")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_freeze_solved(bpy.types.Operator):
+    """Freeze every patch that currently solves — approve the whole state
+    and let later edits only ever re-solve what they touch"""
+
+    bl_idname = "nxloom.freeze_solved"
+    bl_label = "Freeze All Solved"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
+    def execute(self, context):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        if graph is None or not graph.patches:
+            self.report({"WARNING"}, "Nothing to freeze")
+            return {"CANCELLED"}
+        bad = set(obj.get("nx_loom_bad_patches", []) or [])
+        n = 0
+        for pid, patch in graph.patches.items():
+            if pid in bad or patch.fill == "hole" or graph.is_frozen(pid):
+                continue
+            if not all(graph.arcs[a].n
+                       for side in patch.sides for a, _ in side):
+                continue
+            graph.set_frozen(pid, True)
+            n += 1
+        if not n:
+            self.report({"INFO"}, "Nothing new to freeze")
+            return {"CANCELLED"}
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"}, f"{n} patch(es) frozen at their current counts")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_unfreeze_all(bpy.types.Operator):
+    """Thaw every frozen patch — the whole layout re-solves freely again"""
+
+    bl_idname = "nxloom.unfreeze_all"
+    bl_label = "Unfreeze All"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
+    def execute(self, context):
+        obj = active_object(context)
+        graph = get_graph(obj)
+        if graph is None or not graph.settings.get("frozen"):
+            self.report({"INFO"}, "Nothing is frozen")
+            return {"CANCELLED"}
+        n = len(graph.settings.get("frozen") or [])
+        graph.settings["frozen"] = []
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"}, f"{n} region(s) thawed")
+        return {"FINISHED"}
+
+
 _CLASSES = (
     NXLOOM_OT_draw_arc,
     NXLOOM_OT_ring_cut,
@@ -1894,6 +2016,9 @@ _CLASSES = (
     NXLOOM_OT_adjust_patch_density,
     NXLOOM_OT_clear_patch_density,
     NXLOOM_OT_toggle_hole,
+    NXLOOM_OT_toggle_freeze,
+    NXLOOM_OT_freeze_solved,
+    NXLOOM_OT_unfreeze_all,
     NXLOOM_OT_erase,
     NXLOOM_OT_move_node,
     NXLOOM_OT_set_arc_type,

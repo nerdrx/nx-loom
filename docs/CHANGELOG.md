@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.28.0
+
+**The veteran pass** — the three things an artist ten years into a tool like
+this actually leans on: a personal topology library, the power to declare
+work *done*, and control over where loops sit, not just how many there are.
+
+- **Topology stamps.** The eye ring, the mouth loops, the pole fan you have
+  drawn a hundred times — now a library. Three built-ins ship (eye, mouth,
+  pole fan), and *Save Stamp* captures the arcs around the 3D cursor from any
+  layout into your own library (flattened to a unit disc; curvature is
+  intent, and placing re-projects onto whatever surface it lands on).
+  Placing is a gesture: aim with the mouse, wheel to size, R to rotate,
+  click to drop. A stamp lands as **suggestion ghosts** — the same
+  accept/discard lane as the field suggestions, so a stamp is never applied
+  on its own (SPEC §7) and inherits snapping, crossings and mirroring on
+  accept. Stamp one eye with symmetry on; accept; both eyes.
+- **Frozen regions.** Press **F** over a patch (or *Freeze All Solved*) to
+  mark it done: its loop counts are pinned wholesale and no later re-solve —
+  density change, face budget, edits elsewhere — will touch them. Cool mint
+  wash + legend entry. Thaw per-patch with F or all at once. Keyed
+  canonically like holes, so a mirrored pair freezes as one; editing a
+  frozen patch's arcs changes its key and naturally thaws it — edited is no
+  longer done. A hand pin on a shared arc still outranks the freeze.
+- **Spacing bias.** Per-arc slider (Loops panel, on the selected arc):
+  loops crowd toward one end of the arc — rows pinched into a knee or elbow
+  crease — without changing a single count, so the solve is untouched and
+  same-count hand edits stay lossless. Subdivision ticks preview the pinch
+  live; mirrored arcs inherit their source's bias.
+
+Suite: 440 headless + 18 GUI checks (frozen wash and stamp-preview renders
+now under pixel test), 122-layout sweep clean.
+
 ## 0.27.0
 
 **Progress, Cancel, and the end of the freeze** (user request, plus a field

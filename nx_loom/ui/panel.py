@@ -216,6 +216,7 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
                            + ("  (pinned)" if arc.n_lock else "  (solved)"),
                       icon="PINNED" if arc.n_lock else "DECORATE")
             col.prop(st, "active_loops")
+            col.prop(st, "active_bias", slider=True)
             pin_warn = str(obj.get("nx_loom_pin_warn", "") or "")
             if pin_warn:
                 w = col.column(align=True)
@@ -237,6 +238,17 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
             row = box.row()
             row.label(text=f"{pinned} arc(s) pinned", icon="PINNED")
             row.operator("nxloom.clear_loop_locks", text="", icon="X")
+        frozen = len(graph.settings.get("frozen") or []) if graph else 0
+        fbox = layout.box()
+        fbox.label(text="Frozen regions", icon="FREEZE")
+        col = fbox.column(align=True)
+        col.label(text="F over a patch marks it done:")
+        col.label(text="its counts never re-solve.")
+        row = fbox.row(align=True)
+        row.operator("nxloom.freeze_solved", icon="FREEZE")
+        if frozen:
+            row.operator("nxloom.unfreeze_all", text="", icon="X")
+            fbox.label(text=f"{frozen} region(s) frozen", icon="CHECKMARK")
         n_conf = int(obj.get("nx_loom_lock_conflicts", 0) or 0)
         if n_conf:
             col = box.column(align=True)
@@ -360,6 +372,22 @@ class NXLOOM_PT_suggest(_Sub, bpy.types.Panel):
         layout.label(text="only — nothing is applied")
         layout.label(text="until you accept.")
         layout.operator("nxloom.suggest_layout", icon="LIGHT_HEMI")
+
+        st = context.scene.nx_loom
+        box = layout.box()
+        box.label(text="Stamps", icon="OUTLINER_OB_FORCE_FIELD")
+        col = box.column(align=True)
+        col.label(text="Reusable fragments: aim,")
+        col.label(text="wheel to size, R rotates,")
+        col.label(text="click drops it as ghosts.")
+        box.operator_menu_enum("nxloom.stamp_place", "stamp",
+                               icon="OUTLINER_OB_FORCE_FIELD")
+        col = box.column(align=True)
+        col.prop(st, "stamp_name")
+        col.prop(st, "stamp_radius")
+        col.operator("nxloom.stamp_save", icon="FILE_TICK")
+        col.label(text="Saves the arcs around the")
+        col.label(text="3D cursor to your library.")
         if n:
             layout.label(text=f"{n} proposal(s) shown", icon="OUTLINER_OB_LIGHT")
             row = layout.row(align=True)

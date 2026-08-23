@@ -2,13 +2,18 @@
 
 import bpy
 from bpy.props import (BoolProperty, EnumProperty, FloatProperty, IntProperty,
-                       PointerProperty)
+                       PointerProperty, StringProperty)
 
 
 def _apply_active_loops(self, context):
     """Typing a number applies it to the selected arc straight away."""
     from .ops import draw as draw_ops
     draw_ops.apply_active_loops(context, int(self.active_loops))
+
+
+def _apply_active_bias(self, context):
+    from .ops import draw as draw_ops
+    draw_ops.apply_active_bias(context, float(self.active_bias))
 
 
 class NXLoomSettings(bpy.types.PropertyGroup):
@@ -41,6 +46,26 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "slider re-grids the whole model and the quantizer "
                     "guarantees every patch still closes",
         default=0.1, min=0.0005, max=10.0, soft_max=1.0, unit="LENGTH",
+    )
+    active_bias: FloatProperty(
+        name="Bias",
+        description="Where the loops crowd along the selected arc: 0 is "
+                    "even, positive pulls them toward one end, negative the "
+                    "other — pinch rows into a crease without changing the "
+                    "count",
+        default=0.0, min=-2.0, max=2.0,
+        update=_apply_active_bias,
+    )
+    stamp_name: StringProperty(
+        name="Name",
+        description="Name for the stamp saved from around the 3D cursor",
+        default="",
+    )
+    stamp_radius: FloatProperty(
+        name="Radius",
+        description="Arcs fully inside this distance of the 3D cursor are "
+                    "captured by Save Stamp",
+        default=0.3, min=0.001, soft_max=5.0, unit="LENGTH",
     )
     job_budget: FloatProperty(
         name="Auto-cancel After",

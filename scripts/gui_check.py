@@ -250,6 +250,44 @@ def _offscreen_check(ctx):
         check("a failing patch renders as a red wash", wash > 150,
               f"{wash} wash px")
 
+    # frozen region: a cool mint wash where a patch is marked done
+    from nx_loom.ops.layout import set_graph
+    g2 = get_graph(obj2)
+    g2.set_frozen(sorted(g2.patches)[0], True)
+    set_graph(obj2, g2)
+    overlay.mark_dirty()
+    zp = _render(ctx, size)
+    g2 = get_graph(obj2)
+    g2.settings["frozen"] = []
+    set_graph(obj2, g2)
+    overlay.mark_dirty()
+    if zp is not None:
+        mint = int(((zp[:, 1] > 0.08) & (zp[:, 1] > zp[:, 0] * 1.6)
+                    & (zp[:, 1] > zp[:, 2] * 1.2)).sum())
+        check("a frozen patch renders as a mint wash", mint > 100,
+              f"{mint} mint px")
+
+    # stamp preview: ghost lines render while the modal aims
+    from nx_loom.core.stamp import builtin as stamp_builtin, place as stamp_place
+    node0 = next(iter(g2.nodes.values()))
+    centre = np.asarray(node0.co, dtype=float)
+    polys = stamp_place(stamp_builtin("eye"), centre,
+                        np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]),
+                        0.4)
+    base_ice = None
+    bp0 = _render(ctx, size)
+    if bp0 is not None:
+        base_ice = int(((bp0[:, 2] > 0.7) & (bp0[:, 1] > 0.6)
+                        & (bp0[:, 2] >= bp0[:, 0])).sum())
+    overlay.set_stamp_preview(polys)
+    sp = _render(ctx, size)
+    overlay.set_stamp_preview(None)
+    if sp is not None and base_ice is not None:
+        ice = int(((sp[:, 2] > 0.7) & (sp[:, 1] > 0.6)
+                   & (sp[:, 2] >= sp[:, 0])).sum())
+        check("a stamp preview renders as ghost lines", ice > base_ice + 40,
+              f"{base_ice} -> {ice} icy px")
+
     # legend: must render without raising wherever a region exists
     try:
         with bpy.context.temp_override(**ctx):

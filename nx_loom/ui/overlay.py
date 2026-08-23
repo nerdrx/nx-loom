@@ -31,6 +31,7 @@ COL_FILL_BAD = (1.0, 0.18, 0.28, 0.16)
 COL_FILL_BG = (0.5, 0.5, 0.55, 0.10)
 COL_HOLE_EDGE = (0.3, 0.75, 0.8, 0.6)
 COL_TICK = (1.0, 1.0, 1.0, 0.45)
+COL_FILL_FROZEN = (0.25, 0.85, 0.65, 0.10)   # cool mint: approved, at rest
 COL_SEAM_CURVE = (0.35, 1.0, 1.0, 0.30)
 COL_SUGGEST = (0.85, 0.95, 1.0, 0.55)
 COL_NODE = (0.72, 0.42, 1.0, 1.0)
@@ -48,6 +49,12 @@ _handle = None
 _handle_px = None
 _preview = {"path": None, "snap": None, "anchor": None}
 _hover = {"node": None, "arc": None, "seam": None}
+_stamp = {"polys": None}
+
+
+def set_stamp_preview(polys):
+    _stamp["polys"] = polys
+    _tag_redraw()
 _cache = {"key": None, "batches": None}
 
 
@@ -198,6 +205,13 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
                     batches["tris"].append(
                         (batch_for_shader(point_shader, "TRIS", {"pos": tris}),
                          COL_FILL_BG))
+        for pid in graph.frozen_patches():
+            if pid in graph.patches:
+                tris = _fan(graph.patch_boundary(pid))
+                if tris:
+                    batches["tris"].append(
+                        (batch_for_shader(point_shader, "TRIS", {"pos": tris}),
+                         COL_FILL_FROZEN))
         for pid, patch in graph.patches.items():
             if patch.fill == "hole":
                 pts = graph.patch_boundary(pid)
@@ -219,7 +233,8 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
             n = arc.n
             if not n or n < 2 or len(arc.path) < 2:
                 continue
-            pts = resample(np.asarray(arc.path, dtype=float), int(n))
+            pts = resample(np.asarray(arc.path, dtype=float), int(n),
+                           bias=getattr(arc, "bias", 0.0))
             for q in pts[1:-1]:
                 ticks.append(tuple(q))
         if ticks:
@@ -410,6 +425,21 @@ def draw():
     finally:
         gpu.matrix.pop_projection()
 
+    stamp_polys = _stamp["polys"]
+    if stamp_polys:
+        pairs = []
+        for poly in stamp_polys:
+            for i in range(len(poly) - 1):
+                pairs.append(tuple(poly[i]))
+                pairs.append(tuple(poly[i + 1]))
+        if pairs:
+            line_shader.bind()
+            line_shader.uniform_float("viewportSize", view_size)
+            line_shader.uniform_float("lineWidth", 2.2)
+            line_shader.uniform_float("color", COL_SUGGEST)
+            batch_for_shader(line_shader, "LINES",
+                             {"pos": pairs}).draw(line_shader)
+
     path = _preview["path"]
     if path is not None and len(path) >= 2:
         pairs = []
@@ -535,6 +565,7 @@ LEGEND = (
     ("unpaired", COL_UNPAIRED),
     ("failed patch", COL_FILL_BAD[:3] + (1.0,)),
     ("hole", COL_HOLE_EDGE[:3] + (1.0,)),
+    ("frozen", COL_FILL_FROZEN[:3] + (1.0,)),
     ("mid / snap", COL_SEAM),
     ("suggested", COL_SUGGEST),
 )

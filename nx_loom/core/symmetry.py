@@ -259,6 +259,7 @@ def sync(graph, axis, tol=1e-4, surface=None):
             continue
         aid = add_arc(graph, a, b, m_path, surface, arc.type, arc.rail)
         graph.arcs[aid].mirror_of = arc.id
+        graph.arcs[aid].bias = getattr(arc, "bias", 0.0)
         remembered = getattr(graph, "_derived_ids", {}).get(("a", arc.id))
         if remembered is not None:
             old_id, old_lock = remembered

@@ -42,10 +42,11 @@ class Node:
 
 class Arc:
     __slots__ = ("id", "a", "b", "path", "pins", "type", "rail", "n", "n_lock",
-                 "mirror_of", "twin")
+                 "mirror_of", "twin", "bias")
 
     def __init__(self, id, a, b, path, type="flow", rail="surface",
-                 pins=None, n=None, n_lock=None, mirror_of=None, twin=None):
+                 pins=None, n=None, n_lock=None, mirror_of=None, twin=None,
+                 bias=0.0):
         self.id = int(id)
         self.a = int(a)
         self.b = int(b)
@@ -62,6 +63,10 @@ class Arc:
         # authored arc. It is never deleted; the pairing exists only so both
         # sides get the same subdivision count.
         self.twin = twin
+        # bias: where the loops crowd along this arc. 0 = even spacing,
+        # positive pulls them toward node a, negative toward node b. Purely
+        # cosmetic — the COUNT is untouched, so the solve never sees it.
+        self.bias = float(bias or 0.0)
 
     def length(self):
         if len(self.path) < 2:
@@ -73,13 +78,14 @@ class Arc:
                 "path": [[float(x) for x in p] for p in self.path],
                 "pins": self.pins, "type": self.type, "rail": self.rail,
                 "n": self.n, "n_lock": self.n_lock, "mirror_of": self.mirror_of,
-                "twin": self.twin}
+                "twin": self.twin, "bias": self.bias}
 
     @staticmethod
     def from_dict(d):
         return Arc(d["id"], d["a"], d["b"], d["path"], d.get("type", "flow"),
                    d.get("rail", "surface"), d.get("pins"), d.get("n"),
-                   d.get("n_lock"), d.get("mirror_of"), d.get("twin"))
+                   d.get("n_lock"), d.get("mirror_of"), d.get("twin"),
+                   d.get("bias", 0.0))
 
 
 class Patch:
@@ -274,6 +280,48 @@ class LayoutGraph:
                 for aid, _rev in side:
                     acc.setdefault(aid, []).append(d)
         return {aid: float(sum(v) / len(v)) for aid, v in acc.items() if v}
+
+    def is_frozen(self, pid):
+        stored = {tuple(k) for k in self.settings.get("frozen", [])}
+        return (self.canonical_key(pid) in stored
+                or self.patches[pid].arc_key() in stored)
+
+    def set_frozen(self, pid, flag):
+        """Mark a patch as DONE: its current loop counts are pinned wholesale
+        and the solver never touches them again, however the rest of the
+        layout changes. Keyed canonically, so a mirrored pair freezes as one
+        — and editing the patch's arcs (splitting, erasing) changes the key
+        and naturally thaws it: edited is no longer done.
+        """
+        stored = {tuple(k) for k in self.settings.get("frozen", [])}
+        canon = self.canonical_key(pid)
+        raw = self.patches[pid].arc_key()
+        if flag:
+            stored.add(canon)
+        else:
+            stored.discard(canon)
+            stored.discard(raw)
+        self.settings["frozen"] = [list(k) for k in sorted(stored)]
+
+    def frozen_patches(self):
+        stored = {tuple(k) for k in self.settings.get("frozen", [])}
+        if not stored:
+            return set()
+        return {pid for pid in self.patches
+                if self.canonical_key(pid) in stored
+                or self.patches[pid].arc_key() in stored}
+
+    def frozen_arc_locks(self):
+        """{arc_id: n} for every arc of a frozen patch that has a solved
+        count to hold. An explicit hand pin on the same arc outranks these."""
+        locks = {}
+        for pid in self.frozen_patches():
+            for side in self.patches[pid].sides:
+                for aid, _rev in side:
+                    arc = self.arcs.get(aid)
+                    if arc is not None and arc.n:
+                        locks[aid] = int(arc.n)
+        return locks
 
     def set_hole(self, pid, is_hole):
         holes = {tuple(k) for k in self.settings.get("holes", [])}

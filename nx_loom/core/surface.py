@@ -131,11 +131,15 @@ def polyline_length(path):
     return float(np.linalg.norm(np.diff(p, axis=0), axis=1).sum())
 
 
-def resample(path, n, project=None):
+def resample(path, n, project=None, bias=0.0):
     """Resample a polyline to exactly n segments, evenly by arc length.
 
     Endpoints are preserved exactly — they are shared corners and must not
     drift. Interior samples are optionally reprojected onto the surface.
+
+    ``bias`` warps the spacing: 0 is even, positive crowds the samples toward
+    the start of the path, negative toward the end — how an artist pinches
+    loop rows into a knee or elbow crease without changing the loop count.
     """
     p = np.asarray(path, dtype=float)
     if len(p) < 2:
@@ -145,7 +149,10 @@ def resample(path, n, project=None):
     total = cum[-1]
     if total <= 0.0:
         return np.repeat(p[:1], n + 1, axis=0)
-    want = np.linspace(0.0, total, n + 1)
+    t = np.linspace(0.0, 1.0, n + 1)
+    if bias:
+        t = t ** (2.0 ** float(np.clip(bias, -2.0, 2.0)))
+    want = t * total
     out = np.empty((n + 1, 3))
     for i, d in enumerate(want):
         k = int(np.searchsorted(cum, d, side="right") - 1)

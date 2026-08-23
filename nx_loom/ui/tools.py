@@ -40,6 +40,7 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
           "ctrl": True, "alt": True, "shift": True}, None),
         ("nxloom.loop_cut", {"type": "C", "value": "PRESS"}, None),
         ("nxloom.repeat_ring", {"type": "R", "value": "PRESS"}, None),
+        ("nxloom.toggle_freeze", {"type": "F", "value": "PRESS"}, None),
         ("nxloom.set_arc_type_key", {"type": "ONE", "value": "PRESS"},
          {"properties": [("kind", "flow")]}),
         ("nxloom.set_arc_type_key", {"type": "TWO", "value": "PRESS"},

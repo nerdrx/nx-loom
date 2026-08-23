@@ -67,6 +67,12 @@ def _solve_counts(graph, target_edge, fill_background=False, deadline=None):
             continue
         locks[r] = want
 
+    # Frozen patches hold their approved counts wholesale. Folded AFTER the
+    # explicit pins so a hand pin on a shared arc still outranks the freeze,
+    # and onto representatives like everything per-arc (rep-fold rule).
+    for aid, n in graph.frozen_arc_locks().items():
+        locks.setdefault(rep_of.get(aid, aid), max(1, int(n)))
+
     def rep_sides(pid):
         return [[rep_of[a] for a in side]
                 for side in graph.patches[pid].arc_sides()]
@@ -296,7 +302,8 @@ def build_iter(graph, target_edge=None, project=None, relax_iters=20,
     arc_verts = {}
     for aid in graph.arcs:
         arc = graph.arcs[aid]
-        pts = resample(arc.path, counts[aid], project=project)
+        pts = resample(arc.path, counts[aid], project=project,
+                       bias=getattr(arc, "bias", 0.0))
         ids = [node_vert[arc.a]]
         for k in range(1, counts[aid]):
             ids.append(add(pts[k], ("a", int(aid), k / counts[aid])))
