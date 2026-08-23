@@ -22,7 +22,7 @@ from ..core.graph import GRAPH_KEY
 # made the one alarm colour ambiguous.
 ACCENT = (0.467, 0.0, 1.0, 1.0)
 COL_ARC = {
-    "flow": (0.62, 0.44, 1.0, 0.85),
+    "flow": (0.66, 0.48, 1.0, 1.0),
     "crease": (0.93, 0.82, 1.0, 1.0),
     "boundary": (0.25, 0.85, 1.0, 0.95),
     "seam": (0.35, 1.0, 0.55, 0.95),
@@ -248,7 +248,7 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
             batches["lines"].append(
                 (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
                  palette.get(kind, COL_ARC["flow"]),
-                 3.2 if kind == "pinned" else 2.4)
+                 3.8 if kind == "pinned" else 3.0)
             )
     # Arcs with no symmetry partner: the ones that quietly split a "mirrored"
     # layout into two independent halves. Drawn in warning orange so an
@@ -288,10 +288,12 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
     corner = [tuple(n.co) for nid, n in graph.nodes.items() if val.get(nid, 0) != 2]
     if plain:
         batches["points"].append(
-            (batch_for_shader(point_shader, "POINTS", {"pos": plain}), COL_NODE, 6.0))
+            (batch_for_shader(point_shader, "POINTS", {"pos": plain}),
+             COL_NODE, 8.0))
     if corner:
         batches["points"].append(
-            (batch_for_shader(point_shader, "POINTS", {"pos": corner}), COL_CORNER, 9.0))
+            (batch_for_shader(point_shader, "POINTS", {"pos": corner}),
+             COL_CORNER, 12.0))
     return line_shader, point_shader, batches
 
 
@@ -334,6 +336,10 @@ def draw():
     region = getattr(ctx, "region", None)
     view_size = (region.width, region.height) if region else (1920.0, 1080.0)
     gpu.state.blend_set("ALPHA")
+    try:
+        ui = float(bpy.context.preferences.system.ui_scale) or 1.0
+    except Exception:
+        ui = 1.0
 
     def _pass(alpha):
         point_shader.bind()
@@ -345,29 +351,39 @@ def draw():
         line_shader.bind()
         line_shader.uniform_float("viewportSize", view_size)
         for batch, color, width in batches["lines"]:
-            line_shader.uniform_float("lineWidth", width)
+            line_shader.uniform_float("lineWidth", width * ui)
             line_shader.uniform_float(
                 "color", (color[0], color[1], color[2], color[3] * alpha))
             batch.draw(line_shader)
         point_shader.bind()
         for batch, color, size in batches["points"]:
-            gpu.state.point_size_set(size)
+            gpu.state.point_size_set(size * ui)
             point_shader.uniform_float(
                 "color", (color[0], color[1], color[2], color[3] * alpha))
             batch.draw(point_shader)
 
-    if st.overlay_xray:
-        # Depth-faded x-ray: the layout behind the model at a quarter
-        # strength instead of shouting through it at full — the front of the
-        # layout stops visually fighting the back.
-        gpu.state.depth_test_set("LESS_EQUAL")
-        _pass(1.0)
-        gpu.state.depth_test_set("GREATER")
-        _pass(0.25)
-        gpu.state.depth_test_set("NONE")
-    else:
-        gpu.state.depth_test_set("LESS_EQUAL")
-        _pass(1.0)
+    # The arcs lie exactly ON the surfaces in the depth buffer — they are the
+    # sculpt's skin and the generated mesh's patch borders — so an unbiased
+    # depth test is a coin flip and half the front of the layout renders at
+    # back-side strength. Pull the overlay toward the camera in NDC before
+    # testing; both passes share the bias, so the front/back split stays
+    # consistent.
+    proj = gpu.matrix.get_projection_matrix().copy()
+    proj[2][3] -= 1e-3
+    gpu.matrix.push_projection()
+    gpu.matrix.load_projection_matrix(proj)
+    try:
+        if st.overlay_xray:
+            gpu.state.depth_test_set("LESS_EQUAL")
+            _pass(1.0)
+            gpu.state.depth_test_set("GREATER")
+            _pass(0.35)
+            gpu.state.depth_test_set("NONE")
+        else:
+            gpu.state.depth_test_set("LESS_EQUAL")
+            _pass(1.0)
+    finally:
+        gpu.matrix.pop_projection()
 
     path = _preview["path"]
     if path is not None and len(path) >= 2:

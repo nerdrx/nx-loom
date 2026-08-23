@@ -538,7 +538,12 @@ states — warnings, failures, snaps; arc types stay in the cool range. The
 viewport legend enumerates the palette; keep it in step with any new colour.
 State fills (red wash for failing patches, grey for background, hole
 outlines), subdivision ticks, the seam trace and depth-faded x-ray are all
-part of the overlay contract and individually toggleable.
+part of the overlay contract and individually toggleable. Depth-tested overlay
+passes MUST run under a small toward-camera NDC bias: the arcs lie exactly on
+the surfaces in the depth buffer, and an unbiased test is a coin flip that
+renders the front of the layout at back-side strength. Any harness check of a
+depth-tested pass must first lay real depth into the buffer, or the pass wins
+trivially and occlusion bugs are invisible.
 
 Whatever is under the cursor is highlighted in amber before you click, so it is
 clear what Ctrl or Shift will grab. It is driven from mouse-move via the tool

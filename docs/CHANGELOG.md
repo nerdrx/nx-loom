@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.23.1 — unreleased
+
+**Fixed: the whole overlay rendered at back-side strength.** The 0.21 depth
+fade tests arcs against the depth buffer — but the arcs lie exactly ON the
+surfaces in that buffer (the sculpt's skin, and the generated mesh's own patch
+borders once the reference is hidden), so the depth test was a coin flip and
+over half the *front* of the layout drew at the faint behind-alpha. Measured:
+676 of 1546 front-arc pixels survived; with the overlay pulled toward the
+camera by a small NDC bias, all of them do. Both passes share the bias, so the
+front/back split stays consistent.
+
+Also a general visibility bump: full-alpha flow arcs, thicker lines, larger
+nodes, the behind-pass at 0.35 instead of 0.25, and line/point sizes now scale
+with the system UI scale on hi-dpi displays.
+
+The test rig learned to lay real depth into its offscreen buffer first —
+without that, every depth-tested pass wins trivially and occlusion bugs are
+invisible to it. This one shipped because the harness could not see it.
+
+381 headless checks + 16 GUI checks; sweep 122/122.
+
+
 ## 0.23.0 — unreleased
 
 Usability pass, final slice.

@@ -119,10 +119,17 @@ def stage_two():
     _deferred_check(ctx)
 
 
-def _render(ctx, size):
-    """Render the overlay into an offscreen buffer and read the pixels back."""
-    import gpu
+def _render(ctx, size, with_depth=False):
+    """Render the overlay into an offscreen buffer and read the pixels back.
 
+    ``with_depth`` first lays the reference mesh's depth into the buffer —
+    without it, every depth-tested overlay pass wins trivially and occlusion
+    bugs are invisible to the harness.
+    """
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+
+    from nx_loom.core.surface import cached_surface
     from nx_loom.ui import overlay
 
     rv3d = ctx["space_data"].region_3d
@@ -137,6 +144,22 @@ def _render(ctx, size):
             with gpu.matrix.push_pop():
                 gpu.matrix.load_matrix(rv3d.view_matrix)
                 gpu.matrix.load_projection_matrix(rv3d.window_matrix)
+                if with_depth:
+                    src = bpy.data.objects.get("Sphere")
+                    surf = cached_surface(
+                        src, bpy.context.evaluated_depsgraph_get()) \
+                        if src else None
+                    if surf is not None:
+                        sh = gpu.shader.from_builtin("UNIFORM_COLOR")
+                        tris = [tuple(surf.verts[i])
+                                for t in surf.tris for i in t]
+                        gpu.state.depth_test_set("LESS_EQUAL")
+                        gpu.state.depth_mask_set(True)
+                        sh.bind()
+                        sh.uniform_float("color", (0.02, 0.02, 0.02, 1.0))
+                        batch_for_shader(sh, "TRIS", {"pos": tris}).draw(sh)
+                        gpu.state.depth_mask_set(False)
+                        gpu.state.depth_test_set("NONE")
                 overlay.draw()
             buf = fb.read_color(0, 0, size, size, 3, 0, "FLOAT")
         buf.dimensions = size * size * 3
@@ -173,6 +196,17 @@ def _offscreen_check(ctx):
     check("overlay draws pixels at all", lit > 200, f"{lit} lit of {len(px)}")
     check("arcs use the accent colour", violet > 100, f"{violet} violet px")
     check("corner nodes drawn", white > 10, f"{white} near-white px")
+
+    # the front of the layout must survive the depth test against the very
+    # surface it lies on — without a bias, on-surface arcs lose the z-fight
+    # about half the time and the whole overlay renders at back-side alpha
+    dp = _render(ctx, size, with_depth=True)
+    if dp is not None:
+        strong = int((((dp[:, 2] > 0.45) & (dp[:, 2] - dp[:, 1] > 0.15)
+                       & (dp[:, 0] - dp[:, 1] > 0.02))).sum())
+        check("front arcs stay at full strength over real depth",
+              strong > violet * 0.5,
+              f"{strong} strong violet px with depth vs {violet} without")
 
     # hovering a node must visibly highlight it
     graph = get_graph(bpy.context.view_layer.objects.active)
