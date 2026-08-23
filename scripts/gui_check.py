@@ -197,6 +197,33 @@ def _offscreen_check(ctx):
         check("hovering an arc highlights the whole arc",
               amber_arc > amber, f"{amber} (node) -> {amber_arc} (arc) amber px")
 
+    # subdivision ticks: dim grey dots along every arc
+    grey = int(((px[:, 0] > 0.3) & (px[:, 0] < 0.65)
+                & (np.abs(px[:, 0] - px[:, 1]) < 0.06)
+                & (np.abs(px[:, 1] - px[:, 2]) < 0.06)).sum())
+    check("subdivision ticks render", grey > 40, f"{grey} tick px")
+
+    # state fill: stage one failing patch and expect a red wash
+    obj2 = bpy.context.view_layer.objects.active
+    pid = sorted(graph.patches)[0]
+    obj2["nx_loom_bad_patches"] = [pid]
+    overlay.mark_dirty()
+    fp = _render(ctx, size)
+    obj2["nx_loom_bad_patches"] = []
+    overlay.mark_dirty()
+    if fp is not None:
+        wash = int(((fp[:, 0] > 0.10) & (fp[:, 0] > fp[:, 1] * 2.0)).sum())
+        check("a failing patch renders as a red wash", wash > 150,
+              f"{wash} wash px")
+
+    # legend: must render without raising wherever a region exists
+    try:
+        with bpy.context.temp_override(**ctx):
+            overlay.draw_text()
+        check("legend and counts draw without raising", True, "")
+    except Exception as e:
+        check("legend and counts draw without raising", False, repr(e))
+
 
 def _deferred_check(ctx):
     """The rebuild behind a wheel notch is on a timer. Prove the timer fires.

@@ -16,14 +16,22 @@ from gpu_extras.batch import batch_for_shader
 
 from ..core.graph import GRAPH_KEY
 
-# NX brand accent #7700FF, plus the type palette derived around it.
+# NX brand accent #7700FF, plus the palette allocated around it. One colour,
+# one meaning: warm warning tones (orange, red, amber) belong to STATES only —
+# crease arcs used to be nearly the same orange as the unpaired warning, which
+# made the one alarm colour ambiguous.
 ACCENT = (0.467, 0.0, 1.0, 1.0)
 COL_ARC = {
     "flow": (0.62, 0.44, 1.0, 0.85),
-    "crease": (1.0, 0.55, 0.15, 0.95),
+    "crease": (0.93, 0.82, 1.0, 1.0),
     "boundary": (0.25, 0.85, 1.0, 0.95),
     "seam": (0.35, 1.0, 0.55, 0.95),
 }
+COL_FILL_BAD = (1.0, 0.18, 0.28, 0.16)
+COL_FILL_BG = (0.5, 0.5, 0.55, 0.10)
+COL_HOLE_EDGE = (0.3, 0.75, 0.8, 0.6)
+COL_TICK = (1.0, 1.0, 1.0, 0.45)
+COL_SEAM_CURVE = (0.35, 1.0, 1.0, 0.30)
 COL_NODE = (0.72, 0.42, 1.0, 1.0)
 COL_CORNER = (1.0, 1.0, 1.0, 1.0)
 COL_BAD = (1.0, 0.18, 0.28, 1.0)
@@ -148,11 +156,91 @@ def _bad_patch_loops(graph, bad_ids):
     return verts
 
 
-def _build(graph, bad_ids, active=None, axis="NONE"):
+def _fan(pts):
+    """Triangle fan over a boundary polygon, for a state tint. A fan from the
+    centroid is not exact triangulation, but a translucent wash does not need
+    exact — it needs cheap and roughly right."""
+    pts = np.asarray(pts, dtype=float)
+    if len(pts) < 3:
+        return []
+    c = tuple(pts.mean(axis=0))
+    tris = []
+    for i in range(len(pts)):
+        tris.append(c)
+        tris.append(tuple(pts[i]))
+        tris.append(tuple(pts[(i + 1) % len(pts)]))
+    return tris
+
+
+def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
     line_shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
     point_shader = gpu.shader.from_builtin("UNIFORM_COLOR")
 
     batches = {"lines": [], "points": []}
+    extras = extras or {}
+    batches["tris"] = []
+
+    # state washes: a failing region tints red, the background region dims —
+    # visible at a glance instead of inferred from outlines
+    if extras.get("show_fills", True):
+        for pid in bad_ids:
+            if pid in graph.patches:
+                tris = _fan(graph.patch_boundary(pid))
+                if tris:
+                    batches["tris"].append(
+                        (batch_for_shader(point_shader, "TRIS", {"pos": tris}),
+                         COL_FILL_BAD))
+        for pid in extras.get("background", []):
+            if pid in graph.patches:
+                tris = _fan(graph.patch_boundary(pid))
+                if tris:
+                    batches["tris"].append(
+                        (batch_for_shader(point_shader, "TRIS", {"pos": tris}),
+                         COL_FILL_BG))
+        for pid, patch in graph.patches.items():
+            if patch.fill == "hole":
+                pts = graph.patch_boundary(pid)
+                pairs = []
+                for i in range(len(pts)):
+                    pairs.append(tuple(pts[i]))
+                    pairs.append(tuple(pts[(i + 1) % len(pts)]))
+                if pairs:
+                    batches["lines"].append(
+                        (batch_for_shader(line_shader, "LINES",
+                                          {"pos": pairs}),
+                         COL_HOLE_EDGE, 1.6))
+
+    # subdivision ticks: where the verts will land, before any rebuild
+    if extras.get("show_ticks", True):
+        from ..core.surface import resample
+        ticks = []
+        for arc in graph.arcs.values():
+            n = arc.n
+            if not n or n < 2 or len(arc.path) < 2:
+                continue
+            pts = resample(np.asarray(arc.path, dtype=float), int(n))
+            for q in pts[1:-1]:
+                ticks.append(tuple(q))
+        if ticks:
+            batches["points"].append(
+                (batch_for_shader(point_shader, "POINTS", {"pos": ticks}),
+                 COL_TICK, 3.5))
+
+    # the symmetry seam itself, so the mirror line is visible where no arcs run
+    seam = extras.get("seam_curve")
+    if seam is not None and len(seam) >= 2:
+        pairs = []
+        pts = np.asarray(seam, dtype=float).reshape(-1, 3)
+        finite = np.isfinite(pts).all(axis=1)
+        for i in range(len(pts) - 1):
+            if finite[i] and finite[i + 1]:
+                pairs.append(tuple(pts[i]))
+                pairs.append(tuple(pts[i + 1]))
+        if pairs:
+            batches["lines"].append(
+                (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
+                 COL_SEAM_CURVE, 1.4))
+
     palette = dict(COL_ARC)
     palette["pinned"] = COL_PINNED
     for kind, pairs in _segments(graph).items():
@@ -220,11 +308,21 @@ def draw():
     bad_ids = set(obj.get("nx_loom_bad_patches", []) or [])
     active = obj.get("nx_loom_active_arc")
     axis = getattr(st, "symmetry_axis", "NONE")
+    extras = {
+        "show_fills": bool(getattr(st, "show_fills", True)),
+        "show_ticks": bool(getattr(st, "show_ticks", True)),
+        "background": list(obj.get("nx_loom_background", []) or []),
+        "seam_curve": (list(obj.get("nx_loom_seam_curve", []) or [])
+                       if axis != "NONE" else None),
+    }
     key = (obj.name, obj.get(GRAPH_KEY, "")[:64], len(obj.get(GRAPH_KEY, "")),
-           tuple(sorted(bad_ids)), active, axis)
+           tuple(sorted(bad_ids)), active, axis,
+           extras["show_fills"], extras["show_ticks"],
+           tuple(extras["background"]),
+           len(extras["seam_curve"] or []))
     if _cache["key"] != key:
         try:
-            _cache["batches"] = _build(graph, bad_ids, active, axis)
+            _cache["batches"] = _build(graph, bad_ids, active, axis, extras)
             _cache["key"] = key
         except Exception:
             return
@@ -236,20 +334,40 @@ def draw():
     region = getattr(ctx, "region", None)
     view_size = (region.width, region.height) if region else (1920.0, 1080.0)
     gpu.state.blend_set("ALPHA")
-    gpu.state.depth_test_set("NONE" if st.overlay_xray else "LESS_EQUAL")
 
-    line_shader.bind()
-    line_shader.uniform_float("viewportSize", view_size)
-    for batch, color, width in batches["lines"]:
-        line_shader.uniform_float("lineWidth", width)
-        line_shader.uniform_float("color", color)
-        batch.draw(line_shader)
+    def _pass(alpha):
+        point_shader.bind()
+        for batch, color in batches.get("tris", []):
+            if alpha < 1.0:
+                continue        # washes render front-side only
+            point_shader.uniform_float("color", color)
+            batch.draw(point_shader)
+        line_shader.bind()
+        line_shader.uniform_float("viewportSize", view_size)
+        for batch, color, width in batches["lines"]:
+            line_shader.uniform_float("lineWidth", width)
+            line_shader.uniform_float(
+                "color", (color[0], color[1], color[2], color[3] * alpha))
+            batch.draw(line_shader)
+        point_shader.bind()
+        for batch, color, size in batches["points"]:
+            gpu.state.point_size_set(size)
+            point_shader.uniform_float(
+                "color", (color[0], color[1], color[2], color[3] * alpha))
+            batch.draw(point_shader)
 
-    point_shader.bind()
-    for batch, color, size in batches["points"]:
-        gpu.state.point_size_set(size)
-        point_shader.uniform_float("color", color)
-        batch.draw(point_shader)
+    if st.overlay_xray:
+        # Depth-faded x-ray: the layout behind the model at a quarter
+        # strength instead of shouting through it at full — the front of the
+        # layout stops visually fighting the back.
+        gpu.state.depth_test_set("LESS_EQUAL")
+        _pass(1.0)
+        gpu.state.depth_test_set("GREATER")
+        _pass(0.25)
+        gpu.state.depth_test_set("NONE")
+    else:
+        gpu.state.depth_test_set("LESS_EQUAL")
+        _pass(1.0)
 
     path = _preview["path"]
     if path is not None and len(path) >= 2:
@@ -334,6 +452,9 @@ def draw_text():
     except Exception:
         return
 
+    if getattr(st, "show_legend", False):
+        _draw_legend(region)
+
     if _hover["seam"] is not None:
         p2d = location_3d_to_region_2d(region, rv3d,
                                        Vector(tuple(_hover["seam"])))
@@ -361,6 +482,35 @@ def draw_text():
                        (COL_PINNED if pinned else COL_HOVER)))
         blf.position(0, p2d.x + 6, p2d.y + 6, 0)
         blf.draw(0, f"{arc.n}" + ("*" if pinned else ""))
+
+
+LEGEND = (
+    ("flow", COL_ARC["flow"]),
+    ("crease", COL_ARC["crease"]),
+    ("boundary", COL_ARC["boundary"]),
+    ("seam", COL_ARC["seam"]),
+    ("pinned", COL_PINNED),
+    ("selected", COL_ACTIVE),
+    ("unpaired", COL_UNPAIRED),
+    ("failed patch", COL_FILL_BAD[:3] + (1.0,)),
+    ("hole", COL_HOLE_EDGE[:3] + (1.0,)),
+    ("mid / snap", COL_SEAM),
+)
+
+
+def _draw_legend(region):
+    """The colour key. Every one of these colours means something that only
+    the author used to know."""
+    x, y0 = 14.0, 14.0
+    blf.size(0, 11)
+    for i, (label, col) in enumerate(reversed(LEGEND)):
+        y = y0 + i * 16
+        blf.color(0, col[0], col[1], col[2], 1.0)
+        blf.position(0, x, y, 0)
+        blf.draw(0, "\u25a0")
+        blf.color(0, 0.85, 0.85, 0.88, 0.9)
+        blf.position(0, x + 16, y, 0)
+        blf.draw(0, label)
 
 
 def enable():

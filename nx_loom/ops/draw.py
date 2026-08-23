@@ -139,6 +139,37 @@ def commit_path(graph, surface, path, snap_radius, min_step,
     return aid, a, b
 
 
+_SEAM_CACHE = {}
+
+
+def _update_seam_curve(obj, surface, st):
+    """The mirror plane's trace on the reference, for the overlay.
+
+    Recomputed only when the reference or axis changes — a cross-section over
+    an avatar-scale mesh is not per-edit work.
+    """
+    if surface is None or st.symmetry_axis == "NONE":
+        obj.pop("nx_loom_seam_curve", None)
+        return
+    key = (getattr(surface, "token", None), st.symmetry_axis)
+    hit = _SEAM_CACHE.get("s")
+    if hit is None or hit[0] != key:
+        from ..core.contour import cross_section
+        from ..core.symmetry import AXIS_INDEX
+        n = [0.0, 0.0, 0.0]
+        n[AXIS_INDEX[st.symmetry_axis]] = 1.0
+        loops = cross_section(surface.verts, surface.tris, (0, 0, 0), n)
+        flat = []
+        for loop in loops:
+            step = max(len(loop) // 160, 1)
+            for q in loop[::step]:
+                flat.extend([float(q[0]), float(q[1]), float(q[2])])
+            flat.extend([float("nan")] * 3)   # break between loops
+        _SEAM_CACHE["s"] = (key, flat)
+        hit = _SEAM_CACHE["s"]
+    obj["nx_loom_seam_curve"] = hit[1]
+
+
 def refresh(obj, graph, context, rebuild=True):
     """Re-derive patches, optionally regenerate, and record what failed."""
     from ..core import symmetry as sym
@@ -149,6 +180,7 @@ def refresh(obj, graph, context, rebuild=True):
     graph.discover_patches(normal_at=normal_at, corner_angle=st.corner_angle)
     sym.enforce_mirrored_patches(graph, st.symmetry_axis,
                                  st.symmetry_tolerance)
+    _update_seam_curve(obj, surface, st)
     set_graph(obj, graph)
     bad = []
     if rebuild and graph.patches:

@@ -127,6 +127,25 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "the cursor",
         default=True,
     )
+    show_fills: BoolProperty(
+        name="State Fills",
+        description="Tint failing patches red and the background region grey, "
+                    "and outline holes, instead of leaving states to be "
+                    "inferred from outlines",
+        default=True,
+    )
+    show_ticks: BoolProperty(
+        name="Subdivision Ticks",
+        description="Dots along each arc where vertices will land, so density "
+                    "is visible before a rebuild",
+        default=True,
+    )
+    show_legend: BoolProperty(
+        name="Colour Legend",
+        description="A small key in the viewport corner for what every overlay "
+                    "colour means",
+        default=True,
+    )
     overlay_xray: BoolProperty(
         name="Layout X-Ray",
         description="Draw the layout on top of everything instead of letting "

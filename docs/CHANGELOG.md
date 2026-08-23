@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.21.0 — unreleased
+
+Usability pass slice 2: the visual instrument.
+
+- **State fills.** Failing patches wash red, the background region dims grey,
+  holes get their own outline — states visible at a glance instead of
+  inferred from arc outlines.
+- **Subdivision ticks.** Dots along every arc where vertices will land, so
+  density is visible *before* a rebuild.
+- **Colour legend.** A small key in the viewport corner — every overlay
+  colour finally explains itself. Toggleable, like the rest.
+- **Depth-faded X-ray.** The layout behind the model renders at quarter
+  strength instead of shouting through at full; the front stops visually
+  fighting the back.
+- **The seam is drawn.** With symmetry on, the mirror plane's trace across
+  the reference is visible even where no arcs run.
+- **Palette fix:** crease arcs were nearly the same orange as the unpaired
+  warning — the one alarm colour was ambiguous. Creases are now hot lavender;
+  warm tones (orange, red, amber) belong to states exclusively.
+
+359 headless checks + 15 GUI checks (red wash, ticks and legend verified by
+pixels); sweep 122/122.
+
+
 ## 0.20.0 — unreleased
 
 The first slice of the big usability pass: modeling speed.

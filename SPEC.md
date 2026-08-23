@@ -533,6 +533,13 @@ converted to world units per click, so it feels identical zoomed into an ear or
 looking at a whole body. Ending a stroke on an existing arc splits it, which is
 what makes a T-junction something you draw rather than plan for.
 
+**One colour, one meaning.** Warm tones (orange, red, amber) are reserved for
+states — warnings, failures, snaps; arc types stay in the cool range. The
+viewport legend enumerates the palette; keep it in step with any new colour.
+State fills (red wash for failing patches, grey for background, hole
+outlines), subdivision ticks, the seam trace and depth-faded x-ray are all
+part of the overlay contract and individually toggleable.
+
 Whatever is under the cursor is highlighted in amber before you click, so it is
 clear what Ctrl or Shift will grab. It is driven from mouse-move via the tool
 keymap, which is only affordable because surfaces are cached; it throttles to
