@@ -124,6 +124,8 @@ def refresh(obj, graph, context, rebuild=True):
     normal_at = surface.normal_at if surface else None
     sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
     graph.discover_patches(normal_at=normal_at, corner_angle=st.corner_angle)
+    sym.enforce_mirrored_patches(graph, st.symmetry_axis,
+                                 st.symmetry_tolerance)
     set_graph(obj, graph)
     bad = []
     if rebuild and graph.patches:
@@ -1037,8 +1039,11 @@ class NXLOOM_OT_symmetrize_side(bpy.types.Operator):
     keep: bpy.props.EnumProperty(
         name="Keep",
         items=[("POS", "Keep + Side", "Authored arcs on the positive side win"),
-               ("NEG", "Keep − Side", "Authored arcs on the negative side win")],
-        default="POS",
+               ("NEG", "Keep − Side", "Authored arcs on the negative side win"),
+               ("ACTIVE", "Keep Selected Side",
+                "The side holding the selected arc wins — Alt+Shift click an "
+                "arc on the side you like first")],
+        default="ACTIVE",
     )
     scope: bpy.props.EnumProperty(
         name="Scope",
@@ -1069,11 +1074,30 @@ class NXLOOM_OT_symmetrize_side(bpy.types.Operator):
 
         loose = sym.unpaired_arcs(graph, st.symmetry_axis,
                                   st.symmetry_tolerance)
-        if not loose:
-            self.report({"INFO"}, "Every arc is already paired")
+        mism = sym.mismatched_twins(graph, st.symmetry_axis) \
+            if self.scope == "ALL" else []
+        if not loose and not mism:
+            self.report({"INFO"}, "Every arc is already paired"
+                        + ("" if self.scope == "ALL"
+                           else " — use Exact Mirror if the shapes differ"))
             return {"CANCELLED"}
 
-        want_sign = 1.0 if self.keep == "POS" else -1.0
+        if self.keep == "ACTIVE":
+            aid = active_arc(obj)
+            if aid is None or aid not in graph.arcs:
+                self.report({"ERROR"},
+                            "Alt+Shift click an arc on the side you want to "
+                            "keep, then run this again")
+                return {"CANCELLED"}
+            side = float(np.asarray(graph.arcs[aid].path)[:, ax].mean())
+            if abs(side) <= st.symmetry_tolerance:
+                self.report({"ERROR"},
+                            "The selected arc sits on the seam — select one "
+                            "clearly on the side you want to keep")
+                return {"CANCELLED"}
+            want_sign = 1.0 if side > 0 else -1.0
+        else:
+            want_sign = 1.0 if self.keep == "POS" else -1.0
 
         def discard_side(aid):
             return float(np.asarray(graph.arcs[aid].path)[:, ax].mean()) \

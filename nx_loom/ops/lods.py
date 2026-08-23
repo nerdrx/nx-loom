@@ -85,6 +85,8 @@ class NXLOOM_OT_make_lods(bpy.types.Operator):
         graph.discover_patches(
             normal_at=surface.normal_at if surface else None,
             corner_angle=st.corner_angle)
+        sym.enforce_mirrored_patches(graph, st.symmetry_axis,
+                                     st.symmetry_tolerance)
         project = surface.project if (surface and st.reproject) else None
 
         base = len(obj.data.polygons)

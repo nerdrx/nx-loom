@@ -547,6 +547,14 @@ the thing it depends on — a stale "covered" verdict would hide a deleted
 counterpart, which is why coverage is re-verified (fast, via KD-tree) rather
 than cached.
 
+**Mirrored-side patches are constructed, never rediscovered**
+(`symmetry.enforce_mirrored_patches`, run after every discovery). Discovery
+depends on reference normals and a corner-angle threshold, and the sculpt's
+triangulation is not symmetric — a borderline call flips on one side and two
+exactly-mirrored regions get different constraints, which is how one cheek of
+a fully mirrored layout fails alone. Only fully-derived regions are replaced;
+twinned regions keep their own discovery.
+
 **Unpaired arcs are a first-class warning.** `symmetry.unpaired_arcs` lists
 authored off-plane arcs with no partner of any kind; the overlay draws them in
 warning orange and the panel explains them, because two independently-drawn

@@ -226,10 +226,12 @@ class NXLOOM_PT_symmetry(_Sub, bpy.types.Panel):
             from ..core.symmetry import unpaired_arcs
             n_mir = sum(1 for a in graph.arcs.values() if a.mirror_of is not None)
             n_twin = sum(1 for a in graph.arcs.values() if a.twin is not None)
-            layout.label(text=f"{n_mir} mirrored, {n_twin} paired",
+            layout.label(text=f"{n_mir} mirrored, {n_twin} twinned",
                          icon="CHECKMARK")
+            from ..core.symmetry import mismatched_twins
             loose = unpaired_arcs(graph, st.symmetry_axis,
                                   st.symmetry_tolerance)
+            drifted = mismatched_twins(graph, st.symmetry_axis)
             if loose:
                 col = layout.column(align=True)
                 col.alert = True
@@ -238,13 +240,28 @@ class NXLOOM_PT_symmetry(_Sub, bpy.types.Panel):
                 col.label(text="Both sides drawn, too different")
                 col.label(text="to pair — they solve separately,")
                 col.label(text="so one side can fail alone.")
+            if drifted:
+                col = layout.column(align=True)
+                col.label(text=f"{len(drifted)} twinned pair(s) differ in "
+                               f"shape", icon="ERROR")
+                col.label(text="Counts are tied, geometry is")
+                col.label(text="not mirrored.")
+            if loose or drifted:
+                col = layout.column(align=True)
+                col.label(text="Alt+Shift click an arc on the")
+                col.label(text="side you like, then:")
+                op = col.operator("nxloom.symmetrize_side",
+                                  text="Mirror From Selected Side",
+                                  icon="MOD_MIRROR")
+                op.keep = "ACTIVE"
+                op.scope = "ALL"
                 row = layout.row(align=True)
                 op = row.operator("nxloom.symmetrize_side", text="Keep +")
                 op.keep = "POS"
-                op.scope = "LOOSE"
+                op.scope = "ALL"
                 op = row.operator("nxloom.symmetrize_side", text="Keep −")
                 op.keep = "NEG"
-                op.scope = "LOOSE"
+                op.scope = "ALL"
 
 
 class NXLOOM_PT_edits(_Sub, bpy.types.Panel):

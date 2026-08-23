@@ -410,6 +410,138 @@ def unpaired_arcs(graph, axis, tol=1e-4):
     return out
 
 
+def enforce_mirrored_patches(graph, axis, tol=1e-4):
+    """Replace discovered mirrored-side patches with mirror images of the
+    authored side's decomposition.
+
+    Discovery re-derives patches per side from surface normals and a corner
+    angle threshold, and the reference sculpt's triangulation is not
+    symmetric — so a borderline corner call can flip on one side only, giving
+    two exactly-mirrored regions DIFFERENT patch structures and therefore
+    different constraints. That is how one cheek of a fully mirrored layout
+    fails to solve while the other is fine. A derived region's decomposition
+    is not something to rediscover: it is the authored side's, mirrored.
+
+    Only patches whose off-plane arcs are all derived are replaced; regions
+    the artist drew on both sides (twins) keep their own discovery.
+    """
+    if not axis or axis == "NONE" or not graph.patches:
+        return 0
+    arc_map = {}
+    for aid, arc in graph.arcs.items():
+        if arc.mirror_of is not None:
+            arc_map[arc.mirror_of] = aid
+    if not arc_map:
+        return 0
+    node_map = {}
+    for nid, node in graph.nodes.items():
+        if node.mirror_of is not None:
+            node_map[node.mirror_of] = nid
+    ax = AXIS_INDEX[axis]
+
+    def on_plane_arc(aid):
+        return _straddles_or_on(graph.arcs[aid], ax, tol)
+
+    def on_plane_node(nid):
+        return abs(float(graph.nodes[nid].co[ax])) <= tol
+
+    def map_arc(aid):
+        if aid in arc_map:
+            return arc_map[aid]
+        return aid if on_plane_arc(aid) else None
+
+    def map_node(nid):
+        if nid in node_map:
+            return node_map[nid]
+        return nid if on_plane_node(nid) else None
+
+    derived_arc_ids = set(arc_map.values())
+
+    authored_patches = []
+    doomed = []
+    for pid, patch in graph.patches.items():
+        arcs = {a for side in patch.arc_sides() for a in side}
+        off = [a for a in arcs if not on_plane_arc(a)]
+        if off and all(a in derived_arc_ids for a in off):
+            doomed.append(pid)
+        elif off and all(graph.arcs[a].mirror_of is None
+                         and graph.arcs[a].twin is None for a in off) \
+                and all(map_arc(a) is not None for a in arcs):
+            authored_patches.append(pid)
+
+    if not authored_patches:
+        return 0
+    for pid in doomed:
+        del graph.patches[pid]
+
+    from .graph import Patch
+    next_id = (max(graph.patches) + 1) if graph.patches else 0
+    made = 0
+    for pid in authored_patches:
+        src = graph.patches[pid]
+        n = len(src.sides)
+        corners = [map_node(src.corners[(n - j) % n]) for j in range(n)]
+        if any(c is None for c in corners):
+            continue
+        # mirroring flips orientation: walk the boundary the other way round —
+        # sides in reverse order, arcs within each side reversed, and every
+        # direction flag flipped
+        sides = []
+        ok = True
+        for j in range(n):
+            src_side = src.sides[(n - 1 - j) % n]
+            side = []
+            for aid, rev in reversed(src_side):
+                m = map_arc(aid)
+                if m is None:
+                    ok = False
+                    break
+                side.append((m, not rev if aid in arc_map else not rev))
+            if not ok:
+                break
+            sides.append(side)
+        if not ok:
+            continue
+        mirrored = Patch(next_id, sides, corners, fill=src.fill)
+        graph.patches[next_id] = mirrored
+        next_id += 1
+        made += 1
+    return made
+
+
+def mismatched_twins(graph, axis, rel_tol=0.05):
+    """Twinned pairs whose shapes are not actually mirror images.
+
+    Twins tie subdivision counts, nothing more — both sides keep their own
+    hand-drawn geometry. When the shapes drift apart the layout LOOKS mirrored
+    and counts ARE mirrored, yet the two sides are different surfaces, which
+    is invisible in the solve and very visible in the mesh. Returns
+    [(arc_id, twin_id, deviation), ...] where deviation is the mean distance
+    between one path and the mirror of its partner, relative to arc length.
+    """
+    if not axis or axis == "NONE":
+        return []
+    ax = AXIS_INDEX[axis]
+    out = []
+    for aid, arc in graph.arcs.items():
+        if arc.twin is None or arc.twin not in graph.arcs:
+            continue
+        other = graph.arcs[arc.twin]
+        m = np.asarray(other.path, dtype=float).copy()
+        m[:, ax] *= -1.0
+        p = np.asarray(arc.path, dtype=float)
+        k = min(len(p), len(m))
+        idx_p = np.linspace(0, len(p) - 1, k).astype(int)
+        idx_m = np.linspace(0, len(m) - 1, k).astype(int)
+        d_fwd = np.linalg.norm(p[idx_p] - m[idx_m], axis=1).mean()
+        d_rev = np.linalg.norm(p[idx_p] - m[idx_m][::-1], axis=1).mean()
+        dev = float(min(d_fwd, d_rev))
+        ln = max(arc.length(), 1e-9)
+        if dev / ln > rel_tol:
+            out.append((aid, arc.twin, dev))
+    return out
+
+
 def representative(graph):
     """Map every arc to the arc whose subdivision count it must copy.
 

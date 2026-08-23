@@ -93,6 +93,8 @@ def rebuild_object(obj, context, report_fn=None):
         normal_at=surface.normal_at if surface else None,
         corner_angle=st.corner_angle,
     )
+    sym.enforce_mirrored_patches(graph, st.symmetry_axis,
+                                 st.symmetry_tolerance)
     project = surface.project if (surface and st.reproject) else None
 
     edge = st.target_edge
@@ -275,6 +277,8 @@ def clean_build(obj, context):
         normal_at=surface.normal_at if surface else None,
         corner_angle=st.corner_angle,
     )
+    sym.enforce_mirrored_patches(graph, st.symmetry_axis,
+                                 st.symmetry_tolerance)
     project = surface.project if (surface and st.reproject) else None
     edge = st.target_edge
     if st.size_mode == "COUNT":

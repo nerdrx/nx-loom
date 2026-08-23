@@ -157,6 +157,75 @@ def plane_snap(point, plane, surface=None):
     return q, True
 
 
+def find_crossings(graph, path, radius, skip=()):
+    """Where a new path crosses existing arcs, ordered along the path.
+
+    A drawn line that passes over an existing arc without sharing a node makes
+    the layout non-planar, and patch discovery silently mis-traverses it — so
+    crossings have to become junctions, exactly as an endpoint landing on an
+    arc already does. Both curves lie on the surface, so a genuine crossing
+    comes arbitrarily close; a contiguous run of samples within ``radius`` of
+    one arc is one crossing, at its closest sample. Runs touching the path's
+    ends are excluded: those are the anchors' business.
+
+    Returns [(distance_along_path, sample_index, point_on_existing_arc), ...].
+    """
+    path = np.asarray(path, dtype=float)
+    if len(path) < 3:
+        return []
+    seg = np.linalg.norm(np.diff(path, axis=0), axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    total = cum[-1]
+    if total <= 0:
+        return []
+    end_zone = max(radius * 1.5, total * 0.05)
+
+    found = []
+    for aid, arc in graph.arcs.items():
+        if aid in skip:
+            continue
+        ap = np.asarray(arc.path, dtype=float)
+        if len(ap) < 2:
+            continue
+        a = ap[:-1]
+        ab = ap[1:] - a
+        denom = np.einsum("ij,ij->i", ab, ab)
+        denom[denom < 1e-20] = 1e-20
+        # closest point on this arc for every path sample, vectorised
+        diff = path[:, None, :] - a[None, :, :]
+        t = np.clip(np.einsum("nmj,mj->nm", diff, ab) / denom, 0.0, 1.0)
+        proj = a[None, :, :] + ab[None, :, :] * t[:, :, None]
+        d = np.linalg.norm(path[:, None, :] - proj, axis=2)
+        seg_best = np.argmin(d, axis=1)
+        dist = d[np.arange(len(path)), seg_best]
+
+        below = dist <= radius
+        i = 0
+        while i < len(path):
+            if not below[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(path) and below[j + 1]:
+                j += 1
+            run = np.arange(i, j + 1)
+            k = int(run[np.argmin(dist[run])])
+            if end_zone < cum[k] < total - end_zone:
+                found.append((float(cum[k]), k,
+                              proj[k, seg_best[k]].copy()))
+            i = j + 1
+
+    found.sort(key=lambda c: c[0])
+    # a crossing point shared by several arcs (through an existing junction)
+    # collapses to one cut
+    out = []
+    for c in found:
+        if out and abs(c[0] - out[-1][0]) <= radius:
+            continue
+        out.append(c)
+    return out
+
+
 def resolve_anchor(graph, point, radius, surface=None, plane=None):
     """Where a click lands. -> ("node", nid) after creating/splitting as needed.
 

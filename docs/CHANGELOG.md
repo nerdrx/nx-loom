@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.18.0 — unreleased
+
+**A fully mirrored layout can no longer fail on one side.** Reported with a
+screenshot: "27 mirrored, 0 twinned", one cheek red, its mirror fine — which
+the 0.16 diagnosis said was impossible for paired regions. The leak was patch
+**discovery**: mirrored arcs are exact copies, but patches were re-derived per
+side using surface normals from the (asymmetrically triangulated) sculpt and a
+50° corner threshold, so a borderline corner call could flip on one side only
+— two exactly-mirrored regions, different patch structures, different
+constraints, one solvable.
+
+Mirrored-side patches are now **constructed as mirror images of the authored
+side's decomposition** instead of rediscovered — orientation flipped, corners
+remapped, fill flags carried. Regions drawn by hand on both sides (twins) keep
+their own discovery. Under test: an unsolvable region now goes red on *both*
+sides, every mirrored patch shares its source's canonical key (holes and
+density line up by construction), and a corrupted mirrored decomposition is
+reconstructed.
+
+**Choosing which side to mirror is point-and-shoot now.** "Keep +/−" required
+knowing which side of the axis you were looking at. Alt+Shift click an arc on
+the side you like, then **Mirror From Selected Side** — and the Exact Mirror
+scope (replace twinned counterparts' shapes too) is finally reachable from the
+panel; before, it existed only through the operator's hidden options. The
+panel also warns when twinned pairs have drifted apart in shape: counts tied,
+geometry not mirrored.
+
+342 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.17.0 — unreleased
 
 **Merge by dropping.** Shift-drag a node onto another and they weld: the

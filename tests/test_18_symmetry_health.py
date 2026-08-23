@@ -143,5 +143,96 @@ def run():
                     float(d.max()) < 1e-9, f"max {d.max():.1e}"))
 
     out.append(("no unpaired arcs -> the repair declines politely",
-                "CANCELLED" in bpy.ops.nxloom.symmetrize_side(keep="POS"), ""))
+                "CANCELLED" in bpy.ops.nxloom.symmetrize_side(
+                    keep="POS", scope="LOOSE"), ""))
+
+    out += run_mirrored_discovery()
+    return out
+
+
+def run_mirrored_discovery():
+    """Mirrored-side patches are constructed, not rediscovered.
+
+    Discovery uses surface normals from the reference and a corner-angle
+    threshold, and the sculpt's triangulation is not symmetric — a borderline
+    corner call can flip on one side only, giving exactly-mirrored regions
+    DIFFERENT patch structures. That is how one cheek of a "27 mirrored, 0
+    twinned" layout failed to solve while the other was fine.
+    """
+    from nx_loom.core.build import _solve_counts
+    from nx_loom.core.symmetry import enforce_mirrored_patches
+
+    out = []
+    src, obj, surf = _setup()
+    st = bpy.context.scene.nx_loom
+    g = get_graph(obj)
+    _draw_both_sides(g, surf, skew=0.0, extra_diagonal=False)
+    # authored on + side only for this check: wipe the hand-drawn - side so
+    # sync derives it
+    for aid in [a for a, arc in g.arcs.items()
+                if np.asarray(arc.path)[:, 0].mean() < -st.symmetry_tolerance]:
+        del g.arcs[aid]
+    from nx_loom.core.authoring import prune_orphan_nodes
+    prune_orphan_nodes(g)
+    set_graph(obj, g)
+    rebuild_object(obj, bpy.context)
+    g = get_graph(obj)
+
+    derived = {a for a, arc in g.arcs.items() if arc.mirror_of is not None}
+    out.append(("the negative side is fully derived", len(derived) >= 10,
+                f"{len(derived)} derived"))
+
+    def structure(pid):
+        return tuple(sorted(len(side) for side in g.patches[pid].sides))
+
+    def is_derived_patch(pid):
+        arcs = {a for side in g.patches[pid].arc_sides() for a in side}
+        off = [a for a in arcs
+               if abs(np.asarray(g.arcs[a].path)[:, 0]).max()
+               > st.symmetry_tolerance]
+        return bool(off) and all(a in derived for a in off)
+
+    derived_pids = [p for p in g.patches if is_derived_patch(p)]
+    authored_pids = [p for p in g.patches if not is_derived_patch(p)]
+    out.append(("mirrored-side patches exist", len(derived_pids) >= 4,
+                f"{len(derived_pids)} of {len(g.patches)}"))
+    canon_a = {g.canonical_key(p) for p in authored_pids}
+    matched = sum(1 for p in derived_pids if g.canonical_key(p) in canon_a)
+    out.append(("every mirrored patch shares its source's canonical key",
+                matched == len(derived_pids),
+                f"{matched}/{len(derived_pids)}"))
+
+    # corrupt the mirrored decomposition, then let enforcement restore it —
+    # this is the borderline-corner flip, staged deterministically
+    n_before = len(g.patches)
+    victim = derived_pids[0]
+    del g.patches[victim]
+    made = enforce_mirrored_patches(g, "X", st.symmetry_tolerance)
+    restored = [p for p in g.patches if is_derived_patch(p)]
+    out.append(("a corrupted mirrored decomposition is reconstructed",
+                made >= 1 and len(g.patches) == n_before
+                and len(restored) == len(derived_pids),
+                f"rebuilt {made}, {len(g.patches)} patches"))
+
+    # the invariant that was violated on the report: unsolvable regions go red
+    # on BOTH sides. Conflicting pins on one authored patch's opposite sides
+    # make it genuinely unsolvable; its mirror must fail with it.
+    pid = authored_pids[0]
+    sides = g.patches[pid].arc_sides()
+    if len(sides) == 4 and len(sides[0]) == 1 and len(sides[2]) == 1:
+        g.arcs[sides[0][0]].n_lock = 3
+        g.arcs[sides[2][0]].n_lock = 9
+        set_graph(obj, g)
+        rep = rebuild_object(obj, bpy.context)
+        g = get_graph(obj)
+        bad = set(rep["unsatisfied_patches"])
+        bad_keys = {g.canonical_key(p) for p in bad if p in g.patches}
+        pairs_complete = all(
+            sum(1 for q in g.patches if g.canonical_key(q) == k) ==
+            sum(1 for q in bad if q in g.patches
+                and g.canonical_key(q) == k)
+            for k in bad_keys)
+        out.append(("an unsolvable region now fails on BOTH sides",
+                    len(bad) >= 2 and pairs_complete,
+                    f"{len(bad)} bad patches across {len(bad_keys)} region(s)"))
     return out

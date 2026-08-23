@@ -132,6 +132,8 @@ class NXLOOM_OT_retarget(bpy.types.Operator):
         sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, dst_surface)
         graph.discover_patches(normal_at=dst_surface.normal_at,
                                corner_angle=st.corner_angle)
+        sym.enforce_mirrored_patches(graph, st.symmetry_axis,
+                                     st.symmetry_tolerance)
         set_graph(obj, graph)
         st.reference = target
         obj.matrix_world = target.matrix_world.copy()
