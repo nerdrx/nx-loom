@@ -285,7 +285,16 @@ def _cluster(points, radius):
 
 
 def suggest(verts, tris, spacing=None, max_traces=48, presmooth=True):
-    """Separatrix suggestions. -> (polylines, singular_points).
+    """Separatrix suggestions. -> (polylines, singular_points)."""
+    from .budget import drain
+    return drain(suggest_iter(verts, tris, spacing=spacing,
+                              max_traces=max_traces, presmooth=presmooth))
+
+
+def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True):
+    """suggest() as a progress generator — yields (fraction, label) between
+    the field stages and between traces so a background job can keep the UI
+    alive and honour a Cancel mid-way.
 
     Quality gates, learned from a real avatar: singularities cluster in
     high-detail areas (toes), so only cluster representatives spawn traces;
@@ -294,8 +303,11 @@ def suggest(verts, tris, spacing=None, max_traces=48, presmooth=True):
     """
     verts = np.asarray(verts, dtype=float)
     tris = np.asarray(tris, dtype=int)
+    yield (0.05, "smoothing the proxy")
     field_verts = smooth_proxy(verts, tris) if presmooth else verts
+    yield (0.15, "solving the cross field")
     theta, frames, pairs = smooth_field(field_verts, tris)
+    yield (0.45, "finding field poles")
     sing = singularities(tris, theta, frames, pairs)
     e1, e2, n = frames
 
@@ -329,9 +341,11 @@ def suggest(verts, tris, spacing=None, max_traces=48, presmooth=True):
                 return True
         return False
 
-    for r in reps:
+    for ri, r in enumerate(reps):
         if len(polylines) >= max_traces:
             break
+        yield (0.5 + 0.5 * ri / max(len(reps), 1),
+               f"tracing flow {ri + 1}/{len(reps)}")
         v = sing_ids[r]
         f0 = vert_faces[v][0]
         base = theta[f0]

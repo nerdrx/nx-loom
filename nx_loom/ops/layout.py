@@ -7,7 +7,8 @@ from mathutils import Vector
 
 from ..core import delta as delta_mod
 from ..core import symmetry as sym
-from ..core.build import build, mesh_stats, solve_edge_for_count
+from ..core.build import build, build_iter, mesh_stats, solve_edge_for_count
+from ..core.budget import OutOfTime, drain
 from ..core.graph import GRAPH_KEY, LayoutGraph, from_edge_chains, trace_chains
 from ..core.surface import Surface, cached_surface
 
@@ -79,13 +80,37 @@ def _surface_for(graph, context):
     return cached_surface(ref, context.evaluated_depsgraph_get()) if ref else None
 
 
-def rebuild_object(obj, context, report_fn=None):
-    """Regenerate obj's mesh from its layout graph. Returns the report."""
+def rebuild_object(obj, context, report_fn=None, deadline=None):
+    """Regenerate obj's mesh from its layout graph. Returns the report,
+    or None when there is no layout — or when the deadline cancelled the
+    rebuild (obj["nx_loom_timeout"] then says so; the old mesh is intact)."""
+    try:
+        rep = drain(rebuild_iter(obj, context))
+    except OutOfTime as exc:
+        obj["nx_loom_timeout"] = str(exc)
+        print(f"NX Loom: {exc}")
+        return None
+    if report_fn and rep is not None:
+        report_fn(rep)
+    return rep
+
+
+def rebuild_iter(obj, context):
+    """rebuild_object as a progress generator. Every mutation of the object
+    (mesh write, graph store) happens after the final yield, so ending this
+    generator early — cancel, timeout — leaves the document untouched."""
+    import time as _time
+    t_start = _time.monotonic()
     graph = get_graph(obj)
     if graph is None:
         return None
     st = context.scene.nx_loom
+    deadline = None
+    if st.job_budget > 0:
+        from ..core.budget import Deadline
+        deadline = Deadline(st.job_budget)
     surface = _surface_for(graph, context)
+    yield (0.01, "normalising symmetry")
     # Run the position normalisation to its fixed point BEFORE building.
     # refresh_positions un-snaps seam geometry by a pin round-trip and sync
     # re-snaps it; the state converges over about two cycles, and a mesh built
@@ -111,14 +136,26 @@ def rebuild_object(obj, context, report_fn=None):
     edge = st.target_edge
     solved = None
     if st.size_mode == "COUNT":
+        yield (0.06, "solving the face budget")
         edge, solved = solve_edge_for_count(graph, st.target_count,
                                             st.fill_background)
 
-    verts, quads, prov, report = build(
+    gen = build_iter(
         graph, target_edge=edge, project=project,
         relax_iters=st.relax_iters, fill_background=st.fill_background,
-        cache_token=getattr(surface, "token", None),
+        cache_token=getattr(surface, "token", None), deadline=deadline,
     )
+    while True:
+        try:
+            item = next(gen)
+        except StopIteration as stop:
+            verts, quads, prov, report = stop.value
+            break
+        if item is not None:
+            frac, label = item
+            yield (0.1 + 0.8 * float(frac), label)
+
+    yield (0.92, "finishing")
 
     if st.symmetry_axis != "NONE" and len(verts):
         verts, symrep = sym.symmetrize_verts(verts, st.symmetry_axis,
@@ -156,8 +193,9 @@ def rebuild_object(obj, context, report_fn=None):
         attr.data.foreach_set("value", qp)
 
     set_graph(obj, graph)
-    if report_fn:
-        report_fn(report)
+    obj["nx_loom_build_ms"] = (_time.monotonic() - t_start) * 1000.0
+    if "nx_loom_timeout" in obj:
+        del obj["nx_loom_timeout"]
     return report
 
 
@@ -301,10 +339,20 @@ def clean_build(obj, context):
     edge = st.target_edge
     if st.size_mode == "COUNT":
         edge, _ = solve_edge_for_count(graph, st.target_count, st.fill_background)
-    verts, _, prov, _ = build(graph, target_edge=edge, project=project,
-                              relax_iters=st.relax_iters,
-                              fill_background=st.fill_background,
-                              cache_token=getattr(surface, "token", None))
+    deadline = None
+    if st.job_budget > 0:
+        from ..core.budget import Deadline
+        deadline = Deadline(st.job_budget)
+    try:
+        verts, _, prov, _ = build(graph, target_edge=edge, project=project,
+                                  relax_iters=st.relax_iters,
+                                  fill_background=st.fill_background,
+                                  cache_token=getattr(surface, "token", None),
+                                  deadline=deadline)
+    except OutOfTime as exc:
+        obj["nx_loom_timeout"] = str(exc)
+        print(f"NX Loom: {exc}")
+        return None, None, None
     # Must match rebuild_object exactly, symmetrisation included. Capture
     # differences the edited mesh against this, so anything rebuild does and
     # this does not gets recorded as if the artist had done it by hand.
@@ -333,7 +381,9 @@ class NXLOOM_OT_capture_edits(bpy.types.Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
         clean, prov, surface = clean_build(obj, context)
         if clean is None:
-            self.report({"ERROR"}, "No layout on this object")
+            self.report({"ERROR"}, str(obj.get("nx_loom_timeout"))
+                        if obj.get("nx_loom_timeout")
+                        else "No layout on this object")
             return {"CANCELLED"}
 
         mw = obj.matrix_world
@@ -391,9 +441,25 @@ class NXLOOM_OT_rebuild(bpy.types.Operator):
         return bool(obj is not None and GRAPH_KEY in obj)
 
     def execute(self, context):
-        rep = rebuild_object(active_object(context), context)
+        obj = active_object(context)
+        from . import jobs
+        from .draw import refresh_iter
+        last_ms = float(obj.get("nx_loom_build_ms", 0.0) or 0.0)
+        if jobs.should_run_async(context, last_ms):
+            graph = get_graph(obj)
+            if graph is not None and jobs.start(
+                    "Rebuild", refresh_iter(obj, graph, context),
+                    budget=context.scene.nx_loom.job_budget or None):
+                self.report({"INFO"},
+                            "Rebuilding in the background — progress and "
+                            "Cancel are in the sidebar")
+                return {"FINISHED"}
+        rep = rebuild_object(obj, context)
         if rep is None:
-            self.report({"ERROR"}, "No layout on this object")
+            if "nx_loom_timeout" in obj:
+                self.report({"ERROR"}, str(obj["nx_loom_timeout"]))
+            else:
+                self.report({"ERROR"}, "No layout on this object")
             return {"CANCELLED"}
         msg = f"{rep['quads']} quads, {rep['verts']} verts"
         if rep["failed_patches"] or rep["unsatisfied_patches"]:

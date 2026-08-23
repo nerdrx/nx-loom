@@ -7,7 +7,7 @@ import bpy
 import numpy as np
 
 from ..core.graph import GRAPH_KEY
-from ..core.suggest import suggest
+from ..core.suggest import suggest_iter
 from ..ui import overlay
 from .draw import _surface_of, commit_path, refresh
 from .layout import active_object, get_graph, set_graph
@@ -68,72 +68,113 @@ class NXLOOM_OT_suggest(bpy.types.Operator):
             self.report({"ERROR"}, "Set a Reference mesh first")
             return {"CANCELLED"}
 
-        proxy = _proxy_tris(ref, context)
-        if proxy is None:
-            self.report({"ERROR"}, "Could not read the reference")
-            return {"CANCELLED"}
-        verts, tris = proxy
+        from . import jobs
+        cost = max(float(obj.get("nx_loom_suggest_ms", 0.0) or 0.0),
+                   500.0 if len(ref.data.polygons) > 20000 else 0.0)
+        if jobs.should_run_async(context, cost):
+            name = obj.name
 
-        st = context.scene.nx_loom
-        if st.symmetry_axis != "NONE":
-            # solve on ONE half only: the field and the tracer are numerical
-            # and their output is never mirror-exact, so a full-body solve
-            # yields visibly asymmetric proposals with symmetry on. One-sided
-            # proposals are what the rest of the pipeline expects anyway —
-            # accepted arcs get mirrored by sync like anything authored.
-            from ..core.symmetry import AXIS_INDEX
-            ax = AXIS_INDEX[st.symmetry_axis]
-            cent = verts[tris].mean(axis=1)[:, ax]
-            keep = cent >= -st.symmetry_tolerance
-            tris = tris[keep]
-            used = np.unique(tris)
-            remap = np.full(len(verts), -1, dtype=int)
-            remap[used] = np.arange(len(used))
-            verts = verts[used]
-            tris = remap[tris]
+            def _done(res, why, _name=name):
+                if res is not None:
+                    jobs.JOB["note"] = str(res[1])
+            if jobs.start("Suggest Arcs", _suggest_job(obj, ref, context),
+                          on_done=_done,
+                          budget=context.scene.nx_loom.job_budget or None):
+                self.report({"INFO"},
+                            "Suggesting in the background — progress and "
+                            "Cancel are in the sidebar")
+                return {"FINISHED"}
 
-        polylines, sing = suggest(verts, tris)
+        level, msg = jobs_drain(_suggest_job(obj, ref, context))
+        self.report({level}, msg)
+        return {"CANCELLED"} if level == "ERROR" else {"FINISHED"}
 
-        if st.symmetry_axis != "NONE" and polylines:
-            # clip proposals out of the seam band: a trace hugging the mirror
-            # line proposes nothing the seam does not already own, and its
-            # near-coincident mirror image only breeds unpaired-arc warnings
-            from ..core.symmetry import AXIS_INDEX
-            ax = AXIS_INDEX[st.symmetry_axis]
-            span = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
-            band = max(st.symmetry_tolerance * 4.0, span * 0.02)
-            clipped = []
-            for poly in polylines:
-                mask = poly[:, ax] >= band
-                i = 0
-                while i < len(poly):
-                    if not mask[i]:
-                        i += 1
-                        continue
-                    j = i
-                    while j + 1 < len(poly) and mask[j + 1]:
-                        j += 1
-                    if j - i + 1 >= 6:
-                        clipped.append(poly[i:j + 1])
-                    i = j + 1
-            polylines = clipped
-        if not polylines:
-            # a lane with nothing confident to offer offers nothing
-            graph.settings["suggestions"] = []
-            set_graph(obj, graph)
-            self.report({"INFO"},
-                        "No confident suggestions on this surface — its "
-                        "curvature does not pin down an edge flow here")
-            return {"FINISHED"}
 
-        graph.settings["suggestions"] = [
-            [float(x) for p in poly for x in p] for poly in polylines]
+def jobs_drain(gen):
+    from ..core.budget import drain
+    return drain(gen)
+
+
+def _suggest_job(obj, ref, context):
+    """The whole suggest flow as a progress generator. Ghosts are written
+    only after the final yield — cancelling proposes nothing."""
+    import time as _time
+    t_start = _time.monotonic()
+    graph = get_graph(obj)
+    yield (0.02, "preparing the reference")
+    proxy = _proxy_tris(ref, context)
+    if proxy is None:
+        return ("ERROR", "Could not read the reference")
+    verts, tris = proxy
+
+    st = context.scene.nx_loom
+    if st.symmetry_axis != "NONE":
+        # solve on ONE half only: the field and the tracer are numerical
+        # and their output is never mirror-exact, so a full-body solve
+        # yields visibly asymmetric proposals with symmetry on. One-sided
+        # proposals are what the rest of the pipeline expects anyway —
+        # accepted arcs get mirrored by sync like anything authored.
+        from ..core.symmetry import AXIS_INDEX
+        ax = AXIS_INDEX[st.symmetry_axis]
+        cent = verts[tris].mean(axis=1)[:, ax]
+        keep = cent >= -st.symmetry_tolerance
+        tris = tris[keep]
+        used = np.unique(tris)
+        remap = np.full(len(verts), -1, dtype=int)
+        remap[used] = np.arange(len(used))
+        verts = verts[used]
+        tris = remap[tris]
+
+    gen = suggest_iter(verts, tris)
+    while True:
+        try:
+            item = next(gen)
+        except StopIteration as stop:
+            polylines, sing = stop.value
+            break
+        if item is not None:
+            yield (0.05 + 0.9 * float(item[0]), item[1])
+
+    if st.symmetry_axis != "NONE" and polylines:
+        # clip proposals out of the seam band: a trace hugging the mirror
+        # line proposes nothing the seam does not already own, and its
+        # near-coincident mirror image only breeds unpaired-arc warnings
+        from ..core.symmetry import AXIS_INDEX
+        ax = AXIS_INDEX[st.symmetry_axis]
+        span = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
+        band = max(st.symmetry_tolerance * 4.0, span * 0.02)
+        clipped = []
+        for poly in polylines:
+            mask = poly[:, ax] >= band
+            i = 0
+            while i < len(poly):
+                if not mask[i]:
+                    i += 1
+                    continue
+                j = i
+                while j + 1 < len(poly) and mask[j + 1]:
+                    j += 1
+                if j - i + 1 >= 6:
+                    clipped.append(poly[i:j + 1])
+                i = j + 1
+        polylines = clipped
+    obj["nx_loom_suggest_ms"] = (_time.monotonic() - t_start) * 1000.0
+    if not polylines:
+        # a lane with nothing confident to offer offers nothing
+        graph.settings["suggestions"] = []
         set_graph(obj, graph)
         overlay.mark_dirty()
-        self.report({"INFO"},
-                    f"{len(polylines)} arc(s) proposed from "
-                    f"{len(sing)} field pole(s) — accept or discard them")
-        return {"FINISHED"}
+        return ("INFO",
+                "No confident suggestions on this surface — its "
+                "curvature does not pin down an edge flow here")
+
+    graph.settings["suggestions"] = [
+        [float(x) for p in poly for x in p] for poly in polylines]
+    set_graph(obj, graph)
+    overlay.mark_dirty()
+    return ("INFO",
+            f"{len(polylines)} arc(s) proposed from "
+            f"{len(sing)} field pole(s) — accept or discard them")
 
 
 class NXLOOM_OT_suggest_accept(bpy.types.Operator):

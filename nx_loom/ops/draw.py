@@ -202,10 +202,19 @@ def _update_seam_curve(obj, surface, st):
 
 def refresh(obj, graph, context, rebuild=True):
     """Re-derive patches, optionally regenerate, and record what failed."""
+    from ..core.budget import drain
+    return drain(refresh_iter(obj, graph, context, rebuild=rebuild))
+
+
+def refresh_iter(obj, graph, context, rebuild=True):
+    """refresh() as a progress generator, pumpable by a background job."""
     from ..core import symmetry as sym
+    from ..core.budget import OutOfTime
+    from .layout import rebuild_iter
     st = context.scene.nx_loom
     surface = _surface_of(graph, context)
     normal_at = surface.normal_at if surface else None
+    yield (0.02, "syncing the layout")
     sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
     drep = graph.discover_patches(normal_at=normal_at,
                                   corner_angle=st.corner_angle)
@@ -216,7 +225,23 @@ def refresh(obj, graph, context, rebuild=True):
     set_graph(obj, graph)
     bad = []
     if rebuild and graph.patches:
-        rep = rebuild_object(obj, context)
+        gen = rebuild_iter(obj, context)
+        rep = None
+        try:
+            while True:
+                try:
+                    item = next(gen)
+                except StopIteration as stop:
+                    rep = stop.value
+                    break
+                if item is not None:
+                    yield (0.04 + 0.92 * float(item[0]), item[1])
+        except OutOfTime as exc:
+            # Old mesh and warnings stay as they were; the panel names why.
+            obj["nx_loom_timeout"] = str(exc)
+            print(f"NX Loom: {exc}")
+            overlay.mark_dirty()
+            return list(obj.get("nx_loom_bad_patches", []) or [])
         if rep:
             obj["nx_loom_lock_conflicts"] = len(rep.get("lock_conflicts", []))
             bad = sorted(set(rep["unsatisfied_patches"])
@@ -794,8 +819,22 @@ def _deferred_rebuild():
         ctx = bpy.context
         graph = get_graph(obj)
         if graph is not None:
-            refresh(obj, graph, ctx)
-            _sync_active_loops(ctx, get_graph(obj), active_arc(obj))
+            from . import jobs
+            last_ms = float(obj.get("nx_loom_build_ms", 0.0) or 0.0)
+            if jobs.should_run_async(ctx, last_ms):
+                name = obj.name
+
+                def _done(_bad, why, _name=name):
+                    o = bpy.data.objects.get(_name)
+                    if o is not None and why is None:
+                        _sync_active_loops(bpy.context, get_graph(o),
+                                           active_arc(o))
+                jobs.start("Rebuild", refresh_iter(obj, graph, ctx),
+                           on_done=_done,
+                           budget=ctx.scene.nx_loom.job_budget or None)
+            else:
+                refresh(obj, graph, ctx)
+                _sync_active_loops(ctx, get_graph(obj), active_arc(obj))
     except Exception:
         # Never silently: if the deferred rebuild dies, the pin is stored and
         # nothing re-solves, which looks exactly like the solver ignoring it.

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.27.0
+
+**Progress, Cancel, and the end of the freeze** (user request, plus a field
+report of Blender freezing outright mid-calculation).
+
+Heavy work — rebuilds, Suggest Arcs — is now written as *progress generators*:
+small units of work with honest `(fraction, label)` checkpoints between them,
+and every mutation of the document (mesh write, graph store, ghosts) strictly
+after the last checkpoint. That one shape buys all three features:
+
+- **Progress bar.** When a rebuild or suggest is expected to be slow (the
+  last one took >0.4 s), it runs as a background job pumped from a timer in
+  ~80 ms slices: the UI stays alive, the sidebar shows a live bar
+  ("filling patch 34/80", "tracing flow 3/12"), the status bar and mouse
+  cursor track the percentage.
+- **Cancel button.** Next to the bar, plus Esc-free: it works because cancel
+  is honoured between work units — and it is *always safe*, since nothing has
+  been written yet. A cancelled job leaves mesh, layout and ghosts exactly as
+  they were.
+- **The watchdog.** `Auto-cancel After` (Size panel, default 60 s, 0 = off)
+  bounds every calculation — background *and* synchronous, Apply's capture
+  included. A runaway solve raises out of the pipeline instead of freezing
+  Blender; the panel then says the mesh is stale and why. The quantizer
+  degrades gracefully under the budget: extra multi-start restarts are
+  skipped, but the first solve and the seed rescue always run — the
+  "topology-preserving edits never un-solve" guarantee does not depend on
+  the clock.
+
+Under test (test_23): chunked build is bit-identical to the blocking build;
+progress is monotonic and labelled; an expired budget raises; a timed-out
+rebuild returns None, names the reason, and leaves the document untouched;
+the pump completes/cancels/watchdogs correctly; a cancelled suggest job
+proposes nothing. Suite: 423 headless + 16 GUI, 122-layout sweep clean.
+
 ## 0.26.1
 
 **The suggestion lane survives contact with a real avatar.** Field report from

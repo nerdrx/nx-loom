@@ -42,6 +42,13 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "guarantees every patch still closes",
         default=0.1, min=0.0005, max=10.0, soft_max=1.0, unit="LENGTH",
     )
+    job_budget: FloatProperty(
+        name="Auto-cancel After",
+        description="Any calculation running longer than this many seconds "
+                    "is cancelled automatically instead of freezing Blender "
+                    "— the layout and mesh stay as they were. 0 disables it",
+        default=60.0, min=0.0, soft_max=600.0, subtype="TIME_ABSOLUTE",
+    )
     relax_iters: IntProperty(
         name="Smoothing",
         description="Laplacian smoothing passes on patch interiors before "

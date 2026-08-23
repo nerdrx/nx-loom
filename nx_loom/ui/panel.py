@@ -45,6 +45,24 @@ class NXLOOM_PT_main(bpy.types.Panel):
         st = context.scene.nx_loom
         obj = active_object(context)
 
+        from ..ops import jobs
+        if jobs.JOB["active"]:
+            import time as _time
+            box = layout.box()
+            box.progress(factor=jobs.JOB["frac"], type="BAR",
+                         text=f"{jobs.JOB['title']} — {jobs.JOB['label']}")
+            row = box.row(align=True)
+            row.label(text=f"{_time.monotonic() - jobs.JOB['t0']:.0f}s")
+            row.operator("nxloom.job_cancel", icon="X")
+        elif jobs.JOB["note"]:
+            layout.label(text=jobs.JOB["note"], icon="INFO")
+        if obj is not None and obj.get("nx_loom_timeout"):
+            box = layout.box()
+            col = box.column(align=True)
+            col.label(text="Last rebuild ran over the budget —", icon="ERROR")
+            col.label(text="the mesh is stale. Simplify the")
+            col.label(text="layout or raise Auto-cancel in Size.")
+
         if obj and obj.mode == "EDIT":
             box = layout.box()
             box.label(text="Trace an existing mesh", icon="EDGESEL")
@@ -180,6 +198,7 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
         col.prop(st, "relax_iters")
         col.prop(st, "reproject")
         col.prop(st, "fill_background")
+        col.prop(st, "job_budget")
 
         obj = active_object(context)
         graph = get_graph(obj)

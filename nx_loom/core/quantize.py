@@ -398,7 +398,7 @@ def _bump_infeasible_splits(counts, patches, sides_of, targets, locks, floors):
 
 
 def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None,
-             seed=None, shifts=(0.0, 0.25, -0.25, 0.5, -0.5)):
+             seed=None, shifts=(0.0, 0.25, -0.25, 0.5, -0.5), deadline=None):
     """Solve integer subdivision counts for every arc.
 
     Returns (counts, report). Never raises on a well-formed graph and never
@@ -463,6 +463,12 @@ def quantize(arc_ids, arc_lengths, target_edge, patches, sides_of, locks=None,
     # this stays deterministic.
     best = None
     for shift in shifts:
+        # A time budget skips the remaining restarts once one has finished —
+        # graceful degradation, never a raise: the first settle always runs,
+        # and the seed rescue below is unconditional (the "topology-preserving
+        # edits never un-solve" guarantee must not depend on the clock).
+        if deadline is not None and best is not None and deadline.over():
+            break
         start = {}
         for a in arc_ids:
             if a in locks:

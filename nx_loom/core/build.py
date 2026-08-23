@@ -41,7 +41,7 @@ def background_patches(graph):
             if a > smallest * BACKGROUND_MIN_RATIO and a > total * BACKGROUND_MIN_SHARE}
 
 
-def _solve_counts(graph, target_edge, fill_background=False):
+def _solve_counts(graph, target_edge, fill_background=False, deadline=None):
     """Quantise only. Shared by build() and the quad-count estimator.
 
     Memoised on everything the solve reads. The dense KKT solve is the floor
@@ -100,7 +100,7 @@ def _solve_counts(graph, target_edge, fill_background=False):
                 if graph.arcs[r].n is not None}
         counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
                                     list(graph.patches), rep_sides, locks,
-                                    seed=seed or None)
+                                    seed=seed or None, deadline=deadline)
         if not qrep["unsatisfied_patches"]:
             # never cache a failure: a later call may carry a better seed
             if len(_COUNT_CACHE) >= _COUNT_CACHE_CAP:
@@ -241,7 +241,7 @@ def _fill_cached(side_pts, relax_iters, project, cache_token):
 
 
 def build(graph, target_edge=None, project=None, relax_iters=20,
-          fill_background=False, cache_token=None):
+          fill_background=False, cache_token=None, deadline=None):
     """Returns (verts (N,3), quads, provenance, report).
 
     ``provenance[i]`` says where vertex i came from — a node, a point along an
@@ -249,13 +249,31 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
     keys hand edits on, so an edit survives a rebuild instead of being keyed to
     a vertex index that means something different next time.
     """
+    from .budget import drain
+    return drain(build_iter(graph, target_edge=target_edge, project=project,
+                            relax_iters=relax_iters,
+                            fill_background=fill_background,
+                            cache_token=cache_token, deadline=deadline))
+
+
+def build_iter(graph, target_edge=None, project=None, relax_iters=20,
+               fill_background=False, cache_token=None, deadline=None):
+    """build() as a progress generator: yields (fraction, label) between
+    patches so a timer job can keep the UI alive and honour a Cancel, and
+    checks ``deadline`` so a runaway solve raises OutOfTime instead of
+    freezing Blender. All results are assembled in local state and only
+    returned at the end — ending this generator early changes nothing.
+    """
     target_edge = target_edge or graph.settings.get("target_edge", 0.1)
+    yield (0.02, "solving loop counts")
 
     # Solve over representatives: a mirrored arc copies its source's count.
     # The mirrored layout has a mirrored constraint system, so solving the
     # reduced system solves both halves at once — and the two sides come out
     # bit-identical rather than merely similar.
-    counts, qrep = _solve_counts(graph, target_edge, fill_background)
+    counts, qrep = _solve_counts(graph, target_edge, fill_background,
+                                 deadline=deadline)
+    yield (0.08, "laying arcs")
     for a in graph.arcs:
         graph.arcs[a].n = counts[a]
 
@@ -294,7 +312,12 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
     failed = []
     holes = []
     background = set() if fill_background else background_patches(graph)
-    for pid, patch in graph.patches.items():
+    n_patches = max(len(graph.patches), 1)
+    for done, (pid, patch) in enumerate(graph.patches.items()):
+        if deadline is not None:
+            deadline.check("filling patches")
+        yield (0.1 + 0.88 * done / n_patches,
+               f"filling patch {done + 1}/{n_patches}")
         if patch.fill == "hole":
             holes.append(pid)
             continue
