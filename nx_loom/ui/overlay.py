@@ -32,6 +32,9 @@ COL_FILL_BG = (0.5, 0.5, 0.55, 0.10)
 COL_HOLE_EDGE = (0.3, 0.75, 0.8, 0.6)
 COL_TICK = (1.0, 1.0, 1.0, 0.45)
 COL_FILL_FROZEN = (0.25, 0.85, 0.65, 0.10)   # cool mint: approved, at rest
+COL_MAGNET = (0.85, 0.95, 1.0, 0.20)         # icy, like all not-yet-document
+COL_Q_GOOD = (0.20, 0.75, 0.90, 0.05)
+COL_Q_BAD = (1.00, 0.25, 0.18, 0.50)         # warm = something is wrong
 COL_SEAM_CURVE = (0.35, 1.0, 1.0, 0.30)
 COL_SUGGEST = (0.85, 0.95, 1.0, 0.55)
 COL_NODE = (0.72, 0.42, 1.0, 1.0)
@@ -50,10 +53,17 @@ _handle_px = None
 _preview = {"path": None, "snap": None, "anchor": None}
 _hover = {"node": None, "arc": None, "seam": None}
 _stamp = {"polys": None}
+_magnet = {"curves": None}
+_qcache = {"key": None, "batch": None, "worst": 0}
 
 
 def set_stamp_preview(polys):
     _stamp["polys"] = polys
+    _tag_redraw()
+
+
+def set_magnet_curves(curves):
+    _magnet["curves"] = curves
     _tag_redraw()
 _cache = {"key": None, "batches": None}
 
@@ -162,6 +172,48 @@ def _bad_patch_loops(graph, bad_ids):
                     verts.append(tuple(path[i]))
                     verts.append(tuple(path[i + 1]))
     return verts
+
+
+def _quality_batch(obj):
+    """Per-quad heatmap over the generated mesh, cached against the mesh.
+
+    Green-blue means calm; warm means stretched or sheared — the palette
+    rule holds, warm tones only ever say something is wrong. Built from the
+    evaluated mesh data whenever the mesh identity or the rebuild changes.
+    """
+    me = obj.data
+    key = (obj.name, me.as_pointer(), len(me.vertices), len(me.polygons),
+           hash(obj.get("nx_loom_graph", "")) if "nx_loom_graph" in obj
+           else 0)
+    if _qcache["key"] == key:
+        return _qcache["batch"]
+    from ..core.quality import quad_quality
+    n = len(me.vertices)
+    co = np.empty(n * 3)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    mw = np.asarray(obj.matrix_world, dtype=float)
+    world = co @ mw[:3, :3].T + mw[:3, 3]
+    quads = [tuple(p.vertices) for p in me.polygons
+             if len(p.vertices) == 4]
+    if not quads:
+        _qcache.update(key=key, batch=None, worst=0)
+        return None
+    qual = quad_quality(world, quads)
+    t = np.clip((0.8 - qual) / 0.6, 0.0, 1.0)[:, None]
+    good = np.asarray(COL_Q_GOOD)
+    bad = np.asarray(COL_Q_BAD)
+    cols = good[None, :] + (bad - good)[None, :] * t
+    qarr = np.asarray(quads, dtype=int)
+    tri_idx = np.concatenate([qarr[:, [0, 1, 2]], qarr[:, [0, 2, 3]]])
+    tri_col = np.concatenate([cols, cols])
+    pos = world[tri_idx.reshape(-1)]
+    col = np.repeat(tri_col, 3, axis=0)
+    shader = gpu.shader.from_builtin("SMOOTH_COLOR")
+    batch = batch_for_shader(shader, "TRIS",
+                             {"pos": pos.tolist(), "color": col.tolist()})
+    _qcache.update(key=key, batch=batch, worst=int((qual < 0.2).sum()))
+    return batch
 
 
 def _fan(pts):
@@ -408,11 +460,21 @@ def draw():
     # back-side strength. Pull the overlay toward the camera in NDC before
     # testing; both passes share the bias, so the front/back split stays
     # consistent.
+    qbatch = None
+    if getattr(st, "show_quality", False) and obj.type == "MESH" \
+            and len(obj.data.polygons):
+        qbatch = _quality_batch(obj)
+
     proj = gpu.matrix.get_projection_matrix().copy()
     proj[2][3] -= 1e-3
     gpu.matrix.push_projection()
     gpu.matrix.load_projection_matrix(proj)
     try:
+        if qbatch is not None:
+            gpu.state.depth_test_set("LESS_EQUAL")
+            shader = gpu.shader.from_builtin("SMOOTH_COLOR")
+            shader.bind()
+            qbatch.draw(shader)
         if st.overlay_xray:
             gpu.state.depth_test_set("LESS_EQUAL")
             _pass(1.0)
@@ -424,6 +486,21 @@ def draw():
             _pass(1.0)
     finally:
         gpu.matrix.pop_projection()
+
+    magnet_curves = _magnet["curves"]
+    if magnet_curves:
+        pairs = []
+        for poly in magnet_curves:
+            for i in range(len(poly) - 1):
+                pairs.append(tuple(poly[i]))
+                pairs.append(tuple(poly[i + 1]))
+        if pairs:
+            line_shader.bind()
+            line_shader.uniform_float("viewportSize", view_size)
+            line_shader.uniform_float("lineWidth", 1.4)
+            line_shader.uniform_float("color", COL_MAGNET)
+            batch_for_shader(line_shader, "LINES",
+                             {"pos": pairs}).draw(line_shader)
 
     stamp_polys = _stamp["polys"]
     if stamp_polys:

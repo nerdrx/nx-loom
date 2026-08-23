@@ -288,6 +288,24 @@ def _offscreen_check(ctx):
         check("a stamp preview renders as ghost lines", ice > base_ice + 40,
               f"{base_ice} -> {ice} icy px")
 
+    # quality heatmap: shear part of the generated mesh, expect warm faces
+    st_q = bpy.context.scene.nx_loom
+    import mathutils
+    me2 = obj2.data
+    for v in list(me2.vertices)[: max(len(me2.vertices) // 4, 4)]:
+        v.co = v.co + mathutils.Vector((0.35 * v.co.z, 0.0, 0.0))
+    me2.update()
+    st_q.show_quality = True
+    overlay.mark_dirty()
+    qp = _render(ctx, size)
+    st_q.show_quality = False
+    overlay.mark_dirty()
+    if qp is not None:
+        warm = int(((qp[:, 0] > 0.25) & (qp[:, 0] > qp[:, 1] * 1.8)
+                    & (qp[:, 0] > qp[:, 2] * 1.8)).sum())
+        check("the quality heatmap marks sheared quads warm", warm > 120,
+              f"{warm} warm px")
+
     # legend: must render without raising wherever a region exists
     try:
         with bpy.context.temp_override(**ctx):

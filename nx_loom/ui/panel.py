@@ -102,6 +102,7 @@ class NXLOOM_PT_main(bpy.types.Panel):
                             else "Hide Reference")
 
         layout.operator("nxloom.activate_draw_tool", icon="GREASEPENCIL")
+        layout.prop(st, "magnet", icon="SNAP_ON")
 
         row = layout.row(align=True)
         row.scale_y = 1.4
@@ -466,6 +467,7 @@ class NXLOOM_PT_display(_Sub, bpy.types.Panel):
         layout.prop(st, "show_fills")
         layout.prop(st, "show_ticks")
         layout.prop(st, "show_legend")
+        layout.prop(st, "show_quality", icon="SHADING_RENDERED")
         layout.prop(st, "corner_angle")
         layout.prop(st, "snap_pixels")
         layout.prop(st, "pick_pixels")

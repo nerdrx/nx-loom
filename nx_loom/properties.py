@@ -16,6 +16,29 @@ def _apply_active_bias(self, context):
     draw_ops.apply_active_bias(context, float(self.active_bias))
 
 
+def _magnet_toggled(self, context):
+    """Show the feature lines the moment the magnet arms, from the panel
+    as well as from the M key."""
+    from .ops import draw as draw_ops
+    from .ops.layout import active_object, get_graph
+    from .ui import overlay
+    if not self.magnet:
+        overlay.set_magnet_curves(None)
+        return
+    try:
+        obj = active_object(context)
+        graph = get_graph(obj) if obj is not None else None
+        if graph is None:
+            return
+        surface = draw_ops._surface_of(graph, context)
+        if surface is None:
+            return
+        idx = draw_ops.magnet_index(surface, graph, context)
+        overlay.set_magnet_curves(idx["curves"] or None)
+    except Exception:
+        overlay.set_magnet_curves(None)
+
+
 class NXLoomSettings(bpy.types.PropertyGroup):
     reference: PointerProperty(
         name="Reference",
@@ -66,6 +89,20 @@ class NXLoomSettings(bpy.types.PropertyGroup):
         description="Arcs fully inside this distance of the 3D cursor are "
                     "captured by Save Stamp",
         default=0.3, min=0.001, soft_max=5.0, unit="LENGTH",
+    )
+    magnet: BoolProperty(
+        name="Magnet",
+        description="Freehand strokes snap to the sculpt's own ridges and "
+                    "valleys — its ears, lips and hard edges — while you "
+                    "draw. M toggles it mid-stroke",
+        default=False, update=_magnet_toggled,
+    )
+    show_quality: BoolProperty(
+        name="Quality Heatmap",
+        description="Colour the generated quads by stretch and shear — warm "
+                    "means a quad is far from square. See problems before "
+                    "you Apply",
+        default=False,
     )
     job_budget: FloatProperty(
         name="Auto-cancel After",

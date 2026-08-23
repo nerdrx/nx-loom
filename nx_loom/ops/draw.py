@@ -456,9 +456,16 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
                     prev = self.stroke_pts[-1] if self.stroke_pts else None
                     pts = trace_rays(self.surface, [ray], anchor=prev)
                     if len(pts):
+                        sample = pts[0]
+                        if context.scene.nx_loom.magnet:
+                            idx = magnet_index(self.surface, self.graph,
+                                               context)
+                            sample = magnet_pull(
+                                self.surface, idx["kd"], sample,
+                                _snap_radius(context, sample) * 1.5)
                         if prev is None or float(
-                                np.linalg.norm(pts[0] - prev)) >= self.min_step * 0.25:
-                            self.stroke_pts.append(pts[0])
+                                np.linalg.norm(sample - prev)) >= self.min_step * 0.25:
+                            self.stroke_pts.append(sample)
                     overlay.set_preview(
                         path=np.asarray(self.stroke_pts) if len(self.stroke_pts) > 1
                         else None,
@@ -466,6 +473,22 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
                         else self.graph.nodes[self.anchor].co)
                     return {"RUNNING_MODAL"}
             self._hover(context, event)
+            return {"RUNNING_MODAL"}
+
+        if event.type == "M" and event.value == "PRESS":
+            st = context.scene.nx_loom
+            st.magnet = not st.magnet
+            if st.magnet:
+                idx = magnet_index(self.surface, self.graph, context)
+                overlay.set_magnet_curves(idx["curves"] or None)
+                n = len(idx["curves"] or [])
+                self.report({"INFO"},
+                            f"Magnet on — {n} feature line(s)" if n else
+                            "Magnet on — but this surface has no decisive "
+                            "creases to snap to")
+            else:
+                overlay.set_magnet_curves(None)
+                self.report({"INFO"}, "Magnet off")
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
@@ -789,6 +812,53 @@ def set_active_arc(obj, aid):
     else:
         obj[ACTIVE_KEY] = int(aid)
     overlay.mark_dirty()
+
+
+_MAGNET = {"token": None, "kd": None, "curves": None}
+
+
+def magnet_index(surface, graph, context):
+    """Feature curves + KD lookup for the reference, cached per surface."""
+    token = getattr(surface, "token", None)
+    if _MAGNET["token"] == token:
+        return _MAGNET
+    from ..core.features import feature_curves
+    from .suggest import _proxy_tris
+    ref = bpy.data.objects.get(graph.reference) if graph.reference else None
+    if ref is None:
+        ref = context.scene.nx_loom.reference
+    curves = []
+    if ref is not None:
+        proxy = _proxy_tris(ref, context)
+        if proxy is not None:
+            curves = feature_curves(*proxy)
+    kd = None
+    if curves:
+        from mathutils import kdtree
+        pts = np.concatenate(curves)
+        kd = kdtree.KDTree(len(pts))
+        for i, pt in enumerate(pts):
+            kd.insert(tuple(pt), i)
+        kd.balance()
+    _MAGNET.update(token=token, kd=kd, curves=curves)
+    return _MAGNET
+
+
+def magnet_pull(surface, kd, p, radius):
+    """Pull a stroke sample toward the nearest feature curve, smoothly.
+
+    Full strength never quite reaches 1: the artist's hand stays in charge
+    and the curve only attracts — SPEC §7 in miniature.
+    """
+    p = np.asarray(p, dtype=float)
+    if kd is None or radius <= 0.0:
+        return p
+    co, _idx, d = kd.find(tuple(p))
+    if co is None or d is None or d > radius:
+        return p
+    strength = (1.0 - d / radius) * 0.85
+    out = p + (np.asarray(co, dtype=float) - p) * strength
+    return np.asarray(surface.project(out[None, :])[0], dtype=float)
 
 
 def _sync_active_loops(context, graph, aid):

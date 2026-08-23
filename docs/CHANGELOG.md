@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.29.0
+
+**Magnet drawing and the quality heatmap** — the two held-back ideas from
+the veteran brainstorm.
+
+- **Magnet drawing.** Toggle *Magnet* in the panel or press **M** mid-draw:
+  freehand strokes snap to the sculpt's own ridges and valleys — an ear rim,
+  a lip line, a hard-surface edge — instead of you re-tracing them by hand.
+  The crease lines come from the same Cohen-Steiner/Morvan edge tensors the
+  suggestion field anchors to (here the tensor's *axis* matters, not its
+  4-RoSy class: a crease face's bending edges ARE the crease, so the dominant
+  eigenvector runs along it); chains of decisive faces are walked into
+  polylines, shown as faint icy guides while the magnet is armed. The pull
+  attracts but never overrides the hand (max 85%, fading with distance) —
+  SPEC §7 in miniature. Honesty gate: a sphere or a flat sheet offers the
+  magnet **nothing** — decisive creases must stand far above the surface's
+  background bend (median over every face), so featureless surfaces produce
+  no guides rather than noise.
+- **Quality heatmap.** *Quality Heatmap* in the Display panel colours every
+  generated quad by the WORSE of its two sins — stretch (shortest/longest
+  edge) and shear (corners off 90°) — warm meaning wrong, per the palette
+  rule. A square scores 1, a 3:1 rectangle a third, garbage the bottom.
+  See the pinched pole fans and sheared transitions before you Apply, not
+  after you subdivide.
+
+Suite: 451 headless + 19 GUI checks (heatmap under pixel test: sheared quads
+render warm), 122-layout sweep clean.
+
 ## 0.28.0
 
 **The veteran pass** — the three things an artist ten years into a tool like
