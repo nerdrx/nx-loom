@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.15.0 — unreleased
+
+You were right: the more you added, the more got recalculated. An edit on a
+552-arc layout cost **8.5 seconds**; it is now **0.5 s**, and a rebuild where
+nothing changed is 0.3 s.
+
+Profiled, then fixed in order of what the profile said:
+
+- **Sync was 94% of an edit and quadratic.** It regenerated every mirrored arc
+  from scratch every time, with Python-loop pairwise scans. Now: a content
+  signature skips sync entirely when the authored half is unchanged (4 ms); a
+  mirror whose source arc did not change is kept rather than regenerated;
+  twin adoption and endpoint matching are vectorised; coverage checks query a
+  KD-tree instead of scanning every arc. 7.9 s → 58 ms.
+- **Pairing verts for exact symmetry was O(V²)** — a full pairwise matrix,
+  25M distances on a 5k-vert half. Spatial grid now.
+- **Patch filling re-ran for every patch on every edit.** Fill results are
+  memoised on the patch's boundary geometry, so only patches an edit actually
+  touched refill. The count solve is memoised the same way.
+- **The seam oscillates by pin round-trips (~1e-4)** between syncs, so every
+  cache key that rounded tighter than that never matched. Keys round at 1e-4
+  world units — far below anything a hand does on purpose.
+
+**Correction to 0.13.0's notes:** the "adoption tolerance proportional to the
+arc" described there never actually shipped — the patch silently failed to
+apply, and only the duplication guard went out. It is genuinely in now,
+vectorised, matching by *best* candidate rather than first (index order could
+steal an exact counterpart's pairing on dense layouts), and comparing true
+arc-length midpoints — the sample-index "midpoint" of a two-point arc is its
+endpoint, which refused every reversed exact pair.
+
+**Seam snap.** Aiming for the middle by eye is over: with symmetry on, a
+click, stroke end, or node drag within snap range of the plane lands *exactly*
+on it, a cyan marker with a "mid" tag shows before you commit, and sync then
+shares the node between both halves instead of mirroring a near-duplicate.
+
+315 headless checks + 12 GUI checks; sweep 122/122.
+
+
 ## 0.14.0 — unreleased
 
 Face work and line quality.

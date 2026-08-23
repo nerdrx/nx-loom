@@ -528,6 +528,24 @@ A gesture that does nothing must say why. An operator reachable from a click
 never returns CANCELLED silently — no reference set, nothing under the cursor,
 whatever it is, it goes to `self.report`.
 
+**Rebuild cost must be proportional to the edit, not the layout.** Sync skips
+via a content signature over the authored half; mirrors whose source arc is
+unchanged are kept, not regenerated; patch fills and the count solve are
+memoised on what they read. Cache keys round at 1e-4 world units, because seam
+geometry oscillates by pin round-trips (~1e-5..1e-3) between syncs and any
+tighter key never matches. When editing sync code, keep `_authored_signature`
+in step with what sync actually reads, and never let a per-item cache outlive
+the thing it depends on — a stale "covered" verdict would hide a deleted
+counterpart, which is why coverage is re-verified (fast, via KD-tree) rather
+than cached.
+
+**Seam snap.** With symmetry on, any landing point (anchor click, stroke end,
+node drag) within the pixel snap radius of the mirror plane is clamped exactly
+onto it (`authoring.plane_snap`, threaded through `resolve_anchor`), with a
+"mid" marker shown beforehand. Exactly-on-plane nodes are what sync shares
+between the halves, so near-miss clicks would otherwise mirror into
+near-duplicate nodes.
+
 Adjusting a loop count does **not** rebuild the mesh per notch. It used to, so
 wheel events queued behind the rebuilds and the count overshot badly on a heavy
 layout; the pin now lands immediately and one coalesced rebuild follows the

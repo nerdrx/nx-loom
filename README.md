@@ -148,7 +148,7 @@ rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
 delta layer, and data transfer on Apply.
 Verified closed and all-quad (χ=2, zero non-manifold, zero boundary, zero
 surface deviation) at every density on icosphere, UV sphere and cylinder
-layouts — including a layout *drawn from nothing* on a sphere. 308 headless
+layouts — including a layout *drawn from nothing* on a sphere. 315 headless
 checks plus 12 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
@@ -181,7 +181,9 @@ dropped and named in the report — never fudged into the mesh.
    | Esc, RMB | end the chain; again to leave the tool |
 
    Whatever is under the cursor lights up before you click, so you can see
-   what Ctrl or Shift is about to grab.
+   what Ctrl or Shift is about to grab. With symmetry on, anything you place
+   near the centre line snaps *exactly* onto it — a cyan "mid" marker shows
+   when the snap is armed.
 
    Strokes snap to existing nodes, and ending one on an existing arc splits it
    into a T-junction. Enclose an area and it becomes a patch, filled at once —

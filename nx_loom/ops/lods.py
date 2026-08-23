@@ -29,6 +29,7 @@ def _emit(obj, graph, context, edge, name, surface, project):
     verts, quads, prov, report = build(
         graph, target_edge=edge, project=project,
         relax_iters=st.relax_iters, fill_background=st.fill_background,
+        cache_token=getattr(surface, "token", None),
     )
     if st.symmetry_axis != "NONE" and len(verts):
         verts, _ = sym.symmetrize_verts(verts, st.symmetry_axis,

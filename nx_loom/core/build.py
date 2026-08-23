@@ -42,7 +42,12 @@ def background_patches(graph):
 
 
 def _solve_counts(graph, target_edge, fill_background=False):
-    """Quantise only. Shared by build() and the quad-count estimator."""
+    """Quantise only. Shared by build() and the quad-count estimator.
+
+    Memoised on everything the solve reads. The dense KKT solve is the floor
+    of a warm rebuild once filling is cached, and it re-runs identically for
+    every rebuild where no arc, lock or density changed.
+    """
     rep_of = representative(graph)
     rep_ids = sorted(set(rep_of.values()))
     lengths = {r: graph.arcs[r].length() for r in rep_ids}
@@ -80,8 +85,20 @@ def _solve_counts(graph, target_edge, fill_background=False):
         lengths = {r: lengths[r] * (sum(by_rep[r]) / len(by_rep[r]))
                    if r in by_rep else lengths[r] for r in rep_ids}
 
-    counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
-                                list(graph.patches), rep_sides, locks)
+    key = (round(target_edge, 9), fill_background,
+           tuple(sorted((r, round(lengths[r], 4)) for r in rep_ids)),
+           tuple(sorted(locks.items())),
+           tuple(tuple(map(tuple, rep_sides(p))) for p in sorted(graph.patches)))
+    hit = _COUNT_CACHE.get(hash(key))
+    if hit is not None:
+        counts_rep, qrep = hit
+    else:
+        counts_rep, qrep = quantize(rep_ids, lengths, target_edge,
+                                    list(graph.patches), rep_sides, locks)
+        if len(_COUNT_CACHE) >= _COUNT_CACHE_CAP:
+            _COUNT_CACHE.clear()
+        _COUNT_CACHE[hash(key)] = (counts_rep, qrep)
+    qrep = dict(qrep)
     qrep["lock_conflicts"] = lock_conflicts
     return {aid: counts_rep[rep_of[aid]] for aid in graph.arcs}, qrep
 
@@ -185,8 +202,38 @@ def solve_edge_for_count(graph, target_count, fill_background=False,
     return best[1], best[2]
 
 
+_FILL_CACHE = {}
+_FILL_CACHE_CAP = 8192
+_COUNT_CACHE = {}
+_COUNT_CACHE_CAP = 64
+
+
+def _fill_cached(side_pts, relax_iters, project, cache_token):
+    """fill_patch, memoised on the patch's boundary geometry.
+
+    Filling is Coons plus relax iterations with a BVH reprojection per pass —
+    the bulk of a rebuild — and on an incremental edit almost every patch's
+    boundary is exactly what it was last time. The key is the rounded boundary
+    itself plus the surface's identity token, so a patch refills only when
+    something that feeds its fill actually changed.
+    """
+    if cache_token is None:
+        return fill_patch(side_pts, relax_iters=relax_iters, project=project)
+    blob = np.round(np.vstack([np.asarray(s) for s in side_pts]), 4).tobytes()
+    key = (hash(blob), tuple(len(s) for s in side_pts), relax_iters,
+           cache_token)
+    hit = _FILL_CACHE.get(key)
+    if hit is not None:
+        return hit
+    res = fill_patch(side_pts, relax_iters=relax_iters, project=project)
+    if len(_FILL_CACHE) >= _FILL_CACHE_CAP:
+        _FILL_CACHE.clear()
+    _FILL_CACHE[key] = res
+    return res
+
+
 def build(graph, target_edge=None, project=None, relax_iters=20,
-          fill_background=False):
+          fill_background=False, cache_token=None):
     """Returns (verts (N,3), quads, provenance, report).
 
     ``provenance[i]`` says where vertex i came from — a node, a point along an
@@ -259,7 +306,7 @@ def build(graph, target_edge=None, project=None, relax_iters=20,
             side_ids.append(ids)
             side_pts.append([verts[i] for i in ids])
 
-        res = fill_patch(side_pts, relax_iters=relax_iters, project=project)
+        res = _fill_cached(side_pts, relax_iters, project, cache_token)
         if res is None:
             failed.append((pid, "no valid split"))
             continue

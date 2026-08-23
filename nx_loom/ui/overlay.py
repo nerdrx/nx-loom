@@ -32,11 +32,12 @@ COL_SNAP = (1.0, 0.85, 0.2, 1.0)
 COL_HOVER = (1.0, 0.85, 0.2, 1.0)
 COL_PINNED = (0.20, 1.0, 0.85, 1.0)
 COL_ACTIVE = (1.0, 0.45, 0.85, 1.0)
+COL_SEAM = (0.35, 1.0, 1.0, 1.0)
 
 _handle = None
 _handle_px = None
 _preview = {"path": None, "snap": None, "anchor": None}
-_hover = {"node": None, "arc": None}
+_hover = {"node": None, "arc": None, "seam": None}
 _cache = {"key": None, "batches": None}
 
 
@@ -63,8 +64,23 @@ def set_hover(node=None, arc=None):
         _tag_redraw()
 
 
+def set_seam(point):
+    """The cursor would land exactly on the symmetry plane — say so.
+
+    Aiming for the middle by eye is a losing game, so the click snaps; this
+    marker is what tells the artist the snap is armed before they commit.
+    """
+    changed = (point is None) != (_hover["seam"] is None)
+    if not changed and point is not None and _hover["seam"] is not None:
+        changed = not np.allclose(point, _hover["seam"])
+    _hover["seam"] = None if point is None else np.asarray(point, dtype=float)
+    if changed:
+        _tag_redraw()
+
+
 def clear_hover():
     set_hover(None, None)
+    set_seam(None)
 
 
 def clear_preview():
@@ -248,6 +264,13 @@ def draw():
         batch_for_shader(point_shader, "POINTS",
                          {"pos": [tuple(_hover["node"])]}).draw(point_shader)
 
+    if _hover["seam"] is not None:
+        point_shader.bind()
+        gpu.state.point_size_set(16.0)
+        point_shader.uniform_float("color", COL_SEAM)
+        batch_for_shader(point_shader, "POINTS",
+                         {"pos": [tuple(_hover["seam"])]}).draw(point_shader)
+
     marks = [p for p in (_preview["snap"], _preview["anchor"]) if p is not None]
     if marks:
         point_shader.bind()
@@ -271,12 +294,13 @@ def draw_text():
     """
     ctx = bpy.context
     st = getattr(ctx.scene, "nx_loom", None)
-    if st is None or not st.show_overlay or not getattr(st, "show_counts", False):
+    if st is None or not st.show_overlay:
         return
     obj = getattr(ctx, "active_object", None)
     graph = _graph_of(obj)
     if graph is None:
         return
+    show_counts = bool(getattr(st, "show_counts", False))
     region = getattr(ctx, "region", None)
     rv3d = getattr(getattr(ctx, "space_data", None), "region_3d", None)
     if region is None or rv3d is None:
@@ -290,6 +314,16 @@ def draw_text():
     try:
         blf.size(0, 12)
     except Exception:
+        return
+
+    if _hover["seam"] is not None:
+        p2d = location_3d_to_region_2d(region, rv3d,
+                                       Vector(tuple(_hover["seam"])))
+        if p2d is not None:
+            blf.color(0, *COL_SEAM)
+            blf.position(0, p2d.x + 10, p2d.y + 10, 0)
+            blf.draw(0, "mid")
+    if not show_counts:
         return
     for arc in graph.arcs.values():
         pinned = bool(arc.n_lock)
@@ -342,3 +376,4 @@ def unregister():
     _cache["key"] = None
     _hover["node"] = None
     _hover["arc"] = None
+    _hover["seam"] = None

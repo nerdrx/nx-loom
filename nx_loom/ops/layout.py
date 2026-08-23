@@ -104,6 +104,7 @@ def rebuild_object(obj, context, report_fn=None):
     verts, quads, prov, report = build(
         graph, target_edge=edge, project=project,
         relax_iters=st.relax_iters, fill_background=st.fill_background,
+        cache_token=getattr(surface, "token", None),
     )
 
     if st.symmetry_axis != "NONE" and len(verts):
@@ -280,7 +281,8 @@ def clean_build(obj, context):
         edge, _ = solve_edge_for_count(graph, st.target_count, st.fill_background)
     verts, _, prov, _ = build(graph, target_edge=edge, project=project,
                               relax_iters=st.relax_iters,
-                              fill_background=st.fill_background)
+                              fill_background=st.fill_background,
+                              cache_token=getattr(surface, "token", None))
     # Must match rebuild_object exactly, symmetrisation included. Capture
     # differences the edited mesh against this, so anything rebuild does and
     # this does not gets recorded as if the artist had done it by hand.

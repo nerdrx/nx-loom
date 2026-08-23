@@ -13,7 +13,7 @@ from mathutils import Vector
 
 from ..core.authoring import (add_arc, decimate, dissolve_node, fair_path,
                               move_node, nearest_node, nearest_on_arc,
-                              new_node, remove_arc, remove_node,
+                              new_node, plane_snap, remove_arc, remove_node,
                               resolve_anchor)
 from ..core.graph import GRAPH_KEY
 from ..core.picking import (interp_rays, pixel_radius_world, ray_surface,
@@ -56,6 +56,17 @@ def _snap_radius(context, point):
                               point, context.scene.nx_loom.snap_pixels)
 
 
+def _seam_plane(context, point):
+    """(axis_index, world snap reach) at this point, or None without symmetry."""
+    st = context.scene.nx_loom
+    if st.symmetry_axis == "NONE" or point is None:
+        return None
+    from ..core.symmetry import AXIS_INDEX
+    reach = pixel_radius_world(context.region, context.space_data.region_3d,
+                               point, st.snap_pixels)
+    return (AXIS_INDEX[st.symmetry_axis], reach)
+
+
 def _pick_radius(context, point):
     """Grabbing something should be more forgiving than snapping to it."""
     return pixel_radius_world(context.region, context.space_data.region_3d,
@@ -63,7 +74,7 @@ def _pick_radius(context, point):
 
 
 def commit_arc(graph, surface, rays, snap_radius, min_step,
-               arc_type="flow", start_node=None, rail="surface"):
+               arc_type="flow", start_node=None, rail="surface", plane=None):
     """Trace rays onto the surface and add the resulting arc.
 
     Returns (arc_id, start_node, end_node), or None when the stroke produced
@@ -71,12 +82,12 @@ def commit_arc(graph, surface, rays, snap_radius, min_step,
     """
     path = trace_rays(surface, rays, min_step=min_step * 0.25)
     return commit_path(graph, surface, path, snap_radius, min_step,
-                       arc_type, start_node, rail)
+                       arc_type, start_node, rail, plane=plane)
 
 
 def commit_path(graph, surface, path, snap_radius, min_step,
                 arc_type="flow", start_node=None, rail="surface",
-                smooth=0.0):
+                smooth=0.0, plane=None):
     """Add an arc from an already-traced surface path.
 
     ``smooth`` fairs hand jitter out of freehand strokes before the arc is
@@ -90,8 +101,8 @@ def commit_path(graph, surface, path, snap_radius, min_step,
 
     a = start_node
     if a is None:
-        a = resolve_anchor(graph, path[0], snap_radius, surface)[0]
-    b = resolve_anchor(graph, path[-1], snap_radius, surface)[0]
+        a = resolve_anchor(graph, path[0], snap_radius, surface, plane)[0]
+    b = resolve_anchor(graph, path[-1], snap_radius, surface, plane)[0]
     if a == b:
         return None
     path = decimate(path, min_step)
@@ -188,13 +199,19 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
 
     def _snap_preview(self, context, point):
         if point is None:
+            overlay.set_seam(None)
             return None
+        snapped, on_seam = plane_snap(point, _seam_plane(context, point),
+                                      self.surface)
+        overlay.set_seam(snapped if on_seam else None)
         r = _snap_radius(context, point)
         hit = nearest_node(self.graph, point, r)
         if hit is not None:
             return self.graph.nodes[hit[0]].co
         hit = nearest_on_arc(self.graph, point, r)
-        return hit[3] if hit is not None else None
+        if hit is not None:
+            return hit[3]
+        return snapped if on_seam else None
 
     def _hover(self, context, event):
         point, ray = self._surface_point(context, event)
@@ -226,7 +243,8 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         res = commit_path(self.graph, self.surface, path, radius, self.min_step,
                           arc_type=context.scene.nx_loom.arc_type,
                           start_node=self.anchor, rail="surface",
-                          smooth=context.scene.nx_loom.stroke_smooth)
+                          smooth=context.scene.nx_loom.stroke_smooth,
+                          plane=_seam_plane(context, path[-1] if len(path) else None))
         return self._after_commit(context, res)
 
     def _commit(self, context, rays):
@@ -238,9 +256,12 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
         radius = _snap_radius(context, point) if point is not None else self.min_step
         # reached only from a click-to-click segment; a drag commits its
         # already-traced path through _commit_traced and stays "surface"
+        probe = trace_rays(self.surface, rays[-1:])
+        end = probe[0] if len(probe) else None
         res = commit_arc(self.graph, self.surface, rays, radius, self.min_step,
                          arc_type=context.scene.nx_loom.arc_type,
-                         start_node=self.anchor, rail="straight")
+                         start_node=self.anchor, rail="straight",
+                         plane=_seam_plane(context, end))
         return self._after_commit(context, res)
 
     def _after_commit(self, context, res):
@@ -267,6 +288,7 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
     def _finish(self, context, cancelled=False):
         overlay.clear_preview()
         overlay.clear_hover()
+        overlay.set_seam(None)
         context.window.cursor_modal_restore()
         context.workspace.status_text_set(None)
         obj = active_object(context)
@@ -345,7 +367,8 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
                     if self.anchor is None:
                         radius = _snap_radius(context, point)
                         self.anchor = resolve_anchor(self.graph, point, radius,
-                                                     self.surface)[0]
+                                                     self.surface,
+                                                     _seam_plane(context, point))[0]
                         self.touched = True
                         refresh(active_object(context), self.graph, context,
                                 rebuild=False)
@@ -477,6 +500,9 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
             origin, direction = _mouse_ray(context, event)
             point = ray_surface(self.surface, origin, direction)
             if point is not None:
+                point, on_seam = plane_snap(point, _seam_plane(context, point),
+                                            self.surface)
+                overlay.set_seam(point if on_seam else None)
                 move_node(self.graph, self.nid, point, self.surface,
                           falloff=context.scene.nx_loom.node_falloff)
                 overlay.set_preview(snap=point)
@@ -486,6 +512,7 @@ class NXLOOM_OT_move_node(bpy.types.Operator):
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             context.window.cursor_modal_restore()
             overlay.clear_preview()
+            overlay.set_seam(None)
             refresh(active_object(context), self.graph, context)
             return {"FINISHED"}
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
@@ -1034,6 +1061,8 @@ class NXLOOM_OT_hover(bpy.types.Operator):
             overlay.clear_hover()
             return {"PASS_THROUGH"}
 
+        snapped, on_seam = plane_snap(point, _seam_plane(context, point), surface)
+        overlay.set_seam(snapped if on_seam else None)
         radius = _pick_radius(context, point)
         node = nearest_node(graph, point, radius)
         if node is not None:

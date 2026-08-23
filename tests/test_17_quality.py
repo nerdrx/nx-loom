@@ -139,4 +139,57 @@ def run():
     bm.free()
     out.append(("holing the inner disc opens the socket", bnd > 0,
                 f"{bnd} boundary edges"))
+
+    out += run_seam_snap()
+    return out
+
+
+def run_seam_snap():
+    """Landing exactly on the symmetry plane instead of eyeballing it."""
+    from nx_loom.core.authoring import plane_snap, resolve_anchor
+    from nx_loom.ops.draw import commit_path
+    from nx_loom.ops.layout import set_graph
+
+    out = []
+    src, obj, surf = _sphere_scene()
+    bpy.context.scene.nx_loom.symmetry_axis = "X"
+    graph = get_graph(obj)
+
+    # a point near the plane clamps exactly onto it, and stays on the surface
+    near = np.array([0.03, 0.6, 0.79])
+    near /= np.linalg.norm(near)
+    snapped, hit = plane_snap(near, (0, 0.05), surf)
+    out.append(("a near-miss lands exactly on the plane",
+                hit and snapped[0] == 0.0, f"x={snapped[0]!r}"))
+    out.append(("and stays on the surface",
+                abs(float(np.linalg.norm(snapped)) - 1.0) < 0.01,
+                f"r={np.linalg.norm(snapped):.4f}"))
+    far = np.array([0.4, 0.6, 0.69])
+    unmoved, hit2 = plane_snap(far, (0, 0.05), surf)
+    out.append(("out of reach is untouched",
+                not hit2 and np.allclose(unmoved, far), ""))
+    out.append(("no symmetry, no snapping",
+                plane_snap(near, None, surf)[1] is False, ""))
+
+    # the click path: an anchor near the plane becomes a node AT x == 0
+    nid, how = resolve_anchor(graph, near, 0.05, surf, plane=(0, 0.05))
+    out.append(("an anchor click near the middle lands at exactly x=0",
+                graph.nodes[nid].co[0] == 0.0,
+                f"x={graph.nodes[nid].co[0]!r}"))
+
+    # a committed segment ending near the plane welds onto the seam: after
+    # sync, the end node is shared, not mirrored into a near-duplicate
+    stroke = np.array([[0.5, 0.5, 0.0], [0.25, 0.62, 0.0], [0.02, 0.7, 0.0]])
+    stroke = stroke / np.linalg.norm(stroke, axis=1, keepdims=True)
+    res = commit_path(graph, surf, stroke, 0.05, 0.005, plane=(0, 0.05))
+    end = graph.nodes[res[2]].co
+    out.append(("a stroke ending near the middle ends ON the middle",
+                end[0] == 0.0, f"x={end[0]!r}"))
+
+    from nx_loom.core import symmetry as sym
+    rep = sym.sync(graph, "X", 0.02, surf)
+    on_plane = sum(1 for n in graph.nodes.values() if n.co[0] == 0.0)
+    out.append(("sync shares the seam node instead of duplicating it",
+                on_plane >= 2 and rep["mirrored"] >= 1,
+                f"{on_plane} on-plane nodes, {rep['mirrored']} mirrored"))
     return out

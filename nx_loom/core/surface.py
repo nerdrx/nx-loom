@@ -20,7 +20,13 @@ except ImportError:                                    # headless math-only use
 class Surface:
     """Triangulated snapshot of a reference object, with a BVH over it."""
 
+    _SERIAL = 0
+
     def __init__(self, obj, depsgraph=None):
+        Surface._SERIAL += 1
+        # identity token for caches keyed on "same reference, unchanged":
+        # id() can be recycled after garbage collection, a serial cannot
+        self.token = Surface._SERIAL
         # Only the name is kept. A cached Surface can outlive a file load, and
         # holding a reference to a freed datablock is a crash waiting to be
         # dereferenced.

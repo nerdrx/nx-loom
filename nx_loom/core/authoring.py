@@ -134,12 +134,35 @@ def nearest_on_arc(graph, point, radius, skip=()):
     return best
 
 
-def resolve_anchor(graph, point, radius, surface=None):
+def plane_snap(point, plane, surface=None):
+    """Clamp a point onto the symmetry plane when it lands within reach.
+
+    ``plane`` is (axis_index, snap_distance) or None. Aiming for the exact
+    middle of a symmetric model by eye is otherwise a losing game — the seam
+    is a mathematical plane and a hand is not. Returns (point, snapped).
+    """
+    if plane is None:
+        return np.asarray(point, dtype=float), False
+    ax, reach = plane
+    point = np.asarray(point, dtype=float)
+    if abs(float(point[ax])) > reach:
+        return point, False
+    q = point.copy()
+    q[ax] = 0.0
+    if surface is not None:
+        q = np.asarray(surface.project(q[None])[0], dtype=float)
+        q[ax] = 0.0
+    return q, True
+
+
+def resolve_anchor(graph, point, radius, surface=None, plane=None):
     """Where a click lands. -> ("node", nid) after creating/splitting as needed.
 
     Snapping to an existing arc splits it, which is what makes a T-junction
-    something you can just draw into rather than having to plan for.
+    something you can just draw into rather than having to plan for. A point
+    within reach of the symmetry plane is clamped exactly onto it first.
     """
+    point, _ = plane_snap(point, plane, surface)
     hit = nearest_node(graph, point, radius)
     if hit is not None:
         return hit[0], "node"
