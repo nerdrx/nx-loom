@@ -246,6 +246,14 @@ splits arcs that cross it, adopts hand-drawn counterparts as twins (positive
 side is always the source, so the choice is deterministic), and mirrors
 whatever is left.
 
+**Regenerated derived geometry keeps its identity.** When sync rebuilds a
+mirror because its source changed, the new arc and its nodes take the OLD ids,
+and the pin carries over — everything keyed on a derived element (locks, delta
+provenance, hole keys) survives regeneration. And rebuild pipelines run the
+position normalisation (refresh + sync) to its fixed point before building:
+a mesh built from a half-converged state disagrees with the next clean rebuild
+by a pin round-trip, which downstream reads as phantom hand edits.
+
 **Locks are read from every arc, not from representatives.** A mirrored or
 twinned arc is represented by its partner in the solve, so collecting locks off
 the representatives alone silently discards any pin on the other half — half

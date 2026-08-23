@@ -127,6 +127,7 @@ def run():
                 f"bigons={obj.get('nx_loom_bigons')}"))
 
     out += run_checkpoints()
+    out += run_audit_regressions()
     return out
 
 
@@ -179,4 +180,91 @@ def run_checkpoints():
     out.append(("sliding uses rails frozen at drag start",
                 "self.rails" in src and ".copy()" in src
                 and "event.ctrl" in src, ""))
+    return out
+
+
+def run_audit_regressions():
+    """Findings from the full audit, pinned down."""
+    import numpy as np
+
+    from nx_loom.core import authoring as A
+    from nx_loom.core.surface import Surface
+    from nx_loom.ops.draw import commit_arc
+    from nx_loom.ops.layout import clean_build
+
+    out = []
+
+    # a pin on a MIRRORED arc must survive its regeneration when the authored
+    # source is edited — the mirror comes back with the same identity
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1.0)
+    src = bpy.context.active_object
+    st = bpy.context.scene.nx_loom
+    st.target_edge = 0.3
+    st.relax_iters = 4
+    st.symmetry_axis = "X"
+    st.symmetry_tolerance = 0.02
+    bpy.ops.nxloom.new_layout()
+    obj = bpy.context.active_object
+    surf = Surface(src, bpy.context.evaluated_depsgraph_get())
+    g = get_graph(obj)
+    NP, SP, PX, FY, BY = (0, 0, 1), (0, 0, -1), (1, 0, 0), (0, 1, 0), (0, -1, 0)
+
+    def gc(a, b, n=12):
+        a = np.array(a, float) / np.linalg.norm(a)
+        b = np.array(b, float) / np.linalg.norm(b)
+        om = np.arccos(np.clip(a @ b, -1, 1))
+        return [(np.sin((1 - t) * om) * a + np.sin(t * om) * b) / np.sin(om)
+                for t in [k / n for k in range(n + 1)]]
+
+    def rays(P):
+        return [(np.array(p) * 3.0, -np.array(p)) for p in P]
+
+    for a, b in ((NP, FY), (FY, SP), (SP, BY), (BY, NP),
+                 (NP, PX), (PX, SP), (FY, PX), (PX, BY)):
+        commit_arc(g, surf, rays(gc(a, b)), 0.08, 0.02)
+    set_graph(obj, g)
+    rebuild_object(obj, bpy.context)
+    rebuild_object(obj, bpy.context)
+
+    g = get_graph(obj)
+    mirror = next(a for a, arc in g.arcs.items() if arc.mirror_of is not None)
+    srcid = g.arcs[mirror].mirror_of
+    g.arcs[mirror].n_lock = 7
+    set_graph(obj, g)
+    rebuild_object(obj, bpy.context)
+    g = get_graph(obj)
+    node = g.arcs[srcid].a
+    co = np.asarray(g.nodes[node].co, float) + np.array([0.0, 0.03, 0.02])
+    co /= np.linalg.norm(co)
+    A.move_node(g, node, co, surf)
+    set_graph(obj, g)
+    rebuild_object(obj, bpy.context)
+    g = get_graph(obj)
+    out.append(("a regenerated mirror keeps its id and its pin",
+                mirror in g.arcs and g.arcs[mirror].n_lock == 7
+                and g.arcs[mirror].n == 7,
+                f"exists={mirror in g.arcs}, "
+                f"lock={g.arcs[mirror].n_lock if mirror in g.arcs else None}"))
+
+    # capturing right after an edit must record zero phantom edits — the
+    # rebuild pipeline converges positions before building
+    world = np.array([tuple(obj.matrix_world @ v.co)
+                      for v in obj.data.vertices])
+    clean, prov, _ = clean_build(obj, bpy.context)
+    if clean.shape == world.shape:
+        d = np.abs(clean - world).max()
+        out.append(("no phantom hand edits right after an edit",
+                    float(d) < 1e-6, f"max divergence {d:.2e}"))
+    else:
+        out.append(("no phantom hand edits right after an edit", False,
+                    "shape mismatch"))
+
+    # number hotkeys fall through to Blender when no layout is active
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    out.append(("arc-type hotkeys yield to Blender without a layout",
+                not bpy.ops.nxloom.set_arc_type_key.poll(), ""))
+    out.append(("checkpoint delete is guarded",
+                not bpy.ops.nxloom.checkpoint_delete.poll(), ""))
     return out

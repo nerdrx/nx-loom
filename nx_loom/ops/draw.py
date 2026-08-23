@@ -1513,6 +1513,13 @@ class NXLOOM_OT_set_arc_type_key(bpy.types.Operator):
 
     kind: bpy.props.StringProperty(default="flow")
 
+    @classmethod
+    def poll(cls, context):
+        # without a layout the number keys must fall through to Blender's own
+        # bindings (collection visibility) instead of being eaten
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
     def execute(self, context):
         context.scene.nx_loom.arc_type = self.kind
         self.report({"INFO"}, f"Drawing {self.kind} arcs")

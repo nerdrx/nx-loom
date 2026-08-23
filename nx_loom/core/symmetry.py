@@ -246,6 +246,15 @@ def sync(graph, axis, tol=1e-4, surface=None):
             continue
         aid = add_arc(graph, a, b, m_path, surface, arc.type, arc.rail)
         graph.arcs[aid].mirror_of = arc.id
+        remembered = getattr(graph, "_derived_ids", {}).get(("a", arc.id))
+        if remembered is not None:
+            old_id, old_lock = remembered
+            if old_id not in graph.arcs:
+                new = graph.arcs.pop(aid)
+                new.id = old_id
+                graph.arcs[old_id] = new
+                aid = old_id
+            graph.arcs[aid].n_lock = old_lock
         made += 1
 
     rep["mirrored"] = made
@@ -301,8 +310,22 @@ def _snap_to_plane(graph, ax, tol, surface=None):
 
 
 def _drop_derived(graph, surface=None, keep_sources=()):
-    n_arcs = [aid for aid, arc in graph.arcs.items()
-              if arc.mirror_of is not None and arc.mirror_of not in keep_sources]
+    """Remove derived geometry, remembering who it was.
+
+    A regenerated mirror must come back with the SAME identity — id, pin,
+    everything keyed on it. Editing an authored arc used to delete its mirror
+    and silently take the artist's loop pin (and any hand-edit provenance)
+    with it.
+    """
+    graph._derived_ids = {}
+    n_arcs = []
+    for aid, arc in graph.arcs.items():
+        if arc.mirror_of is not None and arc.mirror_of not in keep_sources:
+            graph._derived_ids[("a", arc.mirror_of)] = (aid, arc.n_lock)
+            n_arcs.append(aid)
+    for node in graph.nodes.values():
+        if node.mirror_of is not None:
+            graph._derived_ids.setdefault(("n", node.mirror_of), node.id)
     for aid in n_arcs:
         del graph.arcs[aid]
     used = {arc.a for arc in graph.arcs.values()} | {arc.b for arc in graph.arcs.values()}
@@ -339,6 +362,12 @@ def _node_at(graph, co, index, tol, surface, source_id):
             return index["ids"][j]
     nid = new_node(graph, co, surface)
     graph.nodes[nid].mirror_of = source_id
+    remembered = getattr(graph, "_derived_ids", {}).get(("n", source_id))
+    if remembered is not None and remembered not in graph.nodes:
+        node = graph.nodes.pop(nid)
+        node.id = remembered
+        graph.nodes[remembered] = node
+        nid = remembered
     index["ids"].append(nid)
     index["pos"] = np.vstack([index["pos"],
                               np.asarray(graph.nodes[nid].co, dtype=float)[None]])

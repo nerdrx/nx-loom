@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.24.0 — unreleased
+
+A full audit — hunting by the bug families this project has actually produced.
+Three real finds, all fixed and pinned by regression tests:
+
+- **A pin on a mirrored arc vanished when its source was edited.** Sync
+  regenerates a mirror whose source changed — and the regenerated arc came
+  back with a fresh id and no pin, silently taking the artist's loop count
+  (and any hand-edit provenance keyed to that arc) with it. Regenerated
+  mirrors now come back with the **same identity**: same arc id, same node
+  ids, same pin.
+- **Capturing right after an edit recorded ~30 phantom hand edits.** The
+  rebuild after an edit built from a not-yet-converged state (seam pin
+  round-trips settle over about two cycles), so the next clean comparison saw
+  boundaries ~1e-4 away and refilled those patches differently. The rebuild
+  pipeline now converges positions to their fixed point before building —
+  nearly free, since sync signature-skips once converged. One edited vertex
+  captures one delta again.
+- **The 1–4 hotkeys ate Blender's collection-visibility keys** even with no
+  layout anywhere. They now yield unless a layout is active. Checkpoint
+  delete gained its missing guard, and the overlay cache key was hardened
+  from a prefix comparison to a full content hash.
+
+385 headless checks + 16 GUI checks; sweep 122/122.
+
+
 ## 0.23.1 — unreleased
 
 **Fixed: the whole overlay rendered at back-side strength.** The 0.21 depth

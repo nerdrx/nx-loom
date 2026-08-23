@@ -317,7 +317,8 @@ def draw():
         "seam_curve": (list(obj.get("nx_loom_seam_curve", []) or [])
                        if axis != "NONE" else None),
     }
-    key = (obj.name, obj.get(GRAPH_KEY, "")[:64], len(obj.get(GRAPH_KEY, "")),
+    blob = obj.get(GRAPH_KEY, "")
+    key = (obj.name, hash(blob), len(blob),
            tuple(sorted(bad_ids)), active, axis,
            extras["show_fills"], extras["show_ticks"],
            tuple(extras["background"]),

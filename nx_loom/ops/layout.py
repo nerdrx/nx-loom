@@ -86,9 +86,20 @@ def rebuild_object(obj, context, report_fn=None):
         return None
     st = context.scene.nx_loom
     surface = _surface_for(graph, context)
-    if surface is not None:
-        graph.refresh_positions(surface)
-    sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
+    # Run the position normalisation to its fixed point BEFORE building.
+    # refresh_positions un-snaps seam geometry by a pin round-trip and sync
+    # re-snaps it; the state converges over about two cycles, and a mesh built
+    # from cycle one differs from the next clean rebuild by ~1e-4 — which the
+    # per-patch fill cache then treats as changed boundaries, and capture
+    # records as thirty phantom hand edits. The second pass is nearly free:
+    # sync signature-skips once converged.
+    for _ in range(2):
+        if surface is not None:
+            graph.refresh_positions(surface)
+        rep_sync = sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance,
+                            surface)
+        if rep_sync.get("skipped"):
+            break
     graph.discover_patches(
         normal_at=surface.normal_at if surface else None,
         corner_angle=st.corner_angle,
@@ -270,9 +281,16 @@ def clean_build(obj, context):
         return None, None, None
     st = context.scene.nx_loom
     surface = _surface_for(graph, context)
-    if surface is not None:
-        graph.refresh_positions(surface)
-    sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance, surface)
+    # same fixed-point normalisation as rebuild_object — capture compares its
+    # output against the mesh that rebuild wrote, so the two must walk the
+    # identical path
+    for _ in range(2):
+        if surface is not None:
+            graph.refresh_positions(surface)
+        rep_sync = sym.sync(graph, st.symmetry_axis, st.symmetry_tolerance,
+                            surface)
+        if rep_sync.get("skipped"):
+            break
     graph.discover_patches(
         normal_at=surface.normal_at if surface else None,
         corner_angle=st.corner_angle,
@@ -577,8 +595,15 @@ class NXLOOM_OT_checkpoint_delete(bpy.types.Operator):
 
     name: bpy.props.StringProperty()
 
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and obj.get(CHECKPOINT_KEY))
+
     def execute(self, context):
         obj = active_object(context)
+        if obj is None:
+            return {"CANCELLED"}
         store = dict(obj.get(CHECKPOINT_KEY, {}) or {})
         store.pop(self.name, None)
         obj[CHECKPOINT_KEY] = store
