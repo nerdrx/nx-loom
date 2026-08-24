@@ -51,6 +51,16 @@ def _solve_counts(graph, target_edge, fill_background=False, deadline=None):
     rep_of = representative(graph)
     rep_ids = sorted(set(rep_of.values()))
     lengths = {r: graph.arcs[r].length() for r in rep_ids}
+    bad_len = [r for r, ln in lengths.items() if not np.isfinite(ln)]
+    if bad_len:
+        # A non-finite length means a corrupted arc path upstream. Naming it
+        # beats crashing the solver with "NaN to integer" forty frames later.
+        print(f"NX Loom: non-finite length on arc(s) {bad_len} — "
+              f"paths: "
+              + "; ".join(f"{r}:{np.asarray(graph.arcs[r].path)[:2]}"
+                          for r in bad_len[:3]))
+        lengths = {r: (ln if np.isfinite(ln) else target_edge)
+                   for r, ln in lengths.items()}
 
     # Locks are collected from EVERY arc and mapped onto its representative.
     # Reading them off the representatives alone silently dropped any pin on a

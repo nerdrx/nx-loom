@@ -104,6 +104,17 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "you Apply",
         default=False,
     )
+    radial_count: IntProperty(
+        name="Copies",
+        description="How many rotational copies around the axis, the "
+                    "authored wedge included",
+        default=6, min=2, max=64,
+    )
+    radial_axis: EnumProperty(
+        name="Axis",
+        items=[("X", "X", ""), ("Y", "Y", ""), ("Z", "Z", "")],
+        default="Z",
+    )
     job_budget: FloatProperty(
         name="Auto-cancel After",
         description="Any calculation running longer than this many seconds "

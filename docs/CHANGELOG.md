@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.30.0
+
+**The competitive gaps** — the three things rival tools genuinely had on us,
+plus radial symmetry because it sounds cool.
+
+- **Constrained auto-complete** (vs ZRemesher guides). Suggest Arcs now
+  treats your authored arcs as *constraints*: their tangents hard-pin the
+  cross field (a pinned face is a constraint, not an opinion — a soft anchor
+  loses the vote against three disagreeing neighbours), poles buried in
+  authored geometry spawn nothing, and traces END when they reach an arc so
+  accepting connects them. Draw the key lines; ask for the rest; the
+  proposals flow into yours. A fully authored layout gets no proposals —
+  complete the layout, never redraw it.
+- **The result brush** (vs TopoGun). Press **B** (or the Edits panel
+  button): drag tweaks vertices with soft falloff, Shift-drag relaxes,
+  wheel sizes the brush. Every sample is glued back onto the reference so
+  the mesh slides along the sculpt, and ending the brush captures the whole
+  session into the delta layer — the massage survives every rebuild.
+- **Map baking** (vs 3D Coat). *Bake Maps* in Finish: tangent normal (and
+  optional AO) from the sculpt onto the layout UVs — generated first if
+  missing — with the cage extrusion computed from the real gap between the
+  meshes, images packed into the .blend, and every scene setting it touched
+  restored. The pipeline actually ends inside the addon now.
+- **Radialize.** Draw one wedge, set N and axis, and the rotational copies
+  arrive as ghosts — the accept lane's snapping and crossing machinery
+  welds the wedge borders, so there is no separate weld pass to get wrong.
+  Copies that already exist are skipped: radialize twice, get nothing new.
+
+Also fixed in passing, found by the sweep: a NaN could crash the quantizer
+("cannot convert float NaN to integer") instead of degrading — the
+least-squares boundary now falls back to plain targets on any non-finite
+value, and a corrupted arc length is named in the console rather than
+detonating forty frames downstream.
+
+Suite: 474 headless + 19 GUI checks, primitive sweep clean (117 layouts —
+the sweep script was recreated this release; the historic count was 122).
+
 ## 0.29.0
 
 **Magnet drawing and the quality heatmap** — the two held-back ideas from

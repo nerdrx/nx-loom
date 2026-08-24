@@ -226,7 +226,13 @@ def _real_solve(arc_ids, targets, constraints, locks):
     KKT[m:, :m] = A
     rhs_v = np.concatenate([2.0 * W @ t, b])
     sol, *_ = np.linalg.lstsq(KKT, rhs_v, rcond=None)
-    return {a: float(sol[idx[a]]) for a in free}
+    out = {}
+    for a in free:
+        v = float(sol[idx[a]])
+        # a singular or poisoned system must degrade to the plain target,
+        # never poison the integer rounding downstream
+        out[a] = v if np.isfinite(v) else float(targets[a])
+    return out
 
 
 def _flip_cost(n, targets, arc, floors):

@@ -88,8 +88,14 @@ def curvature_alignment(verts, tris, e1, e2, n):
     return z0, weight
 
 
-def smooth_field(verts, tris, iters=60, anchor=0.5):
-    """Smoothed 4-RoSy field as an angle per face (in its own frame)."""
+def smooth_field(verts, tris, iters=60, anchor=0.5, pin_z=None, pin_w=None):
+    """Smoothed 4-RoSy field as an angle per face (in its own frame).
+
+    ``pin_z``/``pin_w`` pin faces to an externally imposed direction — the
+    tangents of the artist's own arcs. A pinned face's anchor replaces its
+    curvature anchor and outweighs any neighbour, so the field flows INTO
+    authored geometry instead of merely near it.
+    """
     e1, e2, n = face_frames(verts, tris)
     pairs = adjacency(tris)
     m = len(tris)
@@ -102,6 +108,13 @@ def smooth_field(verts, tris, iters=60, anchor=0.5):
         rot[i] = ang_a
 
     z0, w0 = curvature_alignment(verts, tris, e1, e2, n)
+    pin_mask = None
+    if pin_z is not None and pin_w is not None:
+        pin_mask = np.asarray(pin_w) > 0
+        z0 = z0.copy()
+        w0 = w0.copy()
+        z0[pin_mask] = np.asarray(pin_z)[pin_mask]
+        w0[pin_mask] = np.asarray(pin_w)[pin_mask]
     z = z0.copy()
     z[np.abs(z) < 1e-12] = 1.0
 
@@ -120,6 +133,11 @@ def smooth_field(verts, tris, iters=60, anchor=0.5):
         ln = np.abs(acc)
         ln[ln < 1e-12] = 1.0
         z = acc / ln
+        if pin_mask is not None:
+            # a pinned face is a CONSTRAINT, not an opinion: a soft anchor
+            # loses the vote against three disagreeing neighbours on any
+            # surface with curvature opinions of its own
+            z[pin_mask] = z0[pin_mask]
     theta = np.angle(z) / 4.0
     return theta, (e1, e2, n), pairs
 
@@ -284,14 +302,67 @@ def _cluster(points, radius):
     return reps
 
 
-def suggest(verts, tris, spacing=None, max_traces=48, presmooth=True):
+def suggest(verts, tris, spacing=None, max_traces=48, presmooth=True,
+            guides=None):
     """Separatrix suggestions. -> (polylines, singular_points)."""
     from .budget import drain
     return drain(suggest_iter(verts, tris, spacing=spacing,
-                              max_traces=max_traces, presmooth=presmooth))
+                              max_traces=max_traces, presmooth=presmooth,
+                              guides=guides))
 
 
-def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True):
+def guide_pins(verts, tris, guides, frames):
+    """Fold authored arc tangents onto the proxy's faces.
+
+    Every guide polyline is resampled to roughly face-sized steps, each
+    sample pinned to its nearest face centre, and the tangents accumulated
+    as 4-RoSy phases. Returns (pin_z, pin_w, soup) — soup being the sampled
+    guide points, which double as the keep-out set so proposals complete
+    the layout instead of redrawing it.
+    """
+    e1, e2, _n = frames
+    centers = verts[tris].mean(axis=1)
+    tri_size = float(np.median(
+        np.linalg.norm(verts[tris[:, 0]] - verts[tris[:, 1]], axis=1)))
+    m = len(tris)
+    acc = np.zeros(m, dtype=complex)
+    soup = []
+    for poly in guides or []:
+        poly = np.asarray(poly, dtype=float)
+        if len(poly) < 2:
+            continue
+        seg = np.linalg.norm(np.diff(poly, axis=0), axis=1)
+        total = float(seg.sum())
+        if total <= 0:
+            continue
+        n_s = max(int(total / max(tri_size * 0.75, 1e-9)), 2)
+        cum = np.concatenate([[0.0], np.cumsum(seg)])
+        want = np.linspace(0.0, total, n_s + 1)
+        pts = np.empty((n_s + 1, 3))
+        tans = np.empty((n_s + 1, 3))
+        for i, d in enumerate(want):
+            k = min(max(int(np.searchsorted(cum, d, side="right") - 1), 0),
+                    len(seg) - 1)
+            t = 0.0 if seg[k] <= 0 else (d - cum[k]) / seg[k]
+            pts[i] = poly[k] + (poly[k + 1] - poly[k]) * t
+            tans[i] = poly[k + 1] - poly[k]
+        soup.append(pts)
+        for pt, tan in zip(pts, tans):
+            dists = np.linalg.norm(centers - pt, axis=1)
+            f = int(np.argmin(dists))
+            if float(dists[f]) > tri_size * 3.0:
+                continue
+            ang = np.arctan2(float(tan @ e2[f]), float(tan @ e1[f]))
+            acc[f] += np.exp(4j * ang)
+    ln = np.abs(acc)
+    pin_w = np.where(ln > 1e-9, 3.0, 0.0)
+    pin_z = np.where(ln > 1e-9, acc / np.where(ln > 1e-9, ln, 1.0), 0.0)
+    soup = np.concatenate(soup) if soup else np.zeros((0, 3))
+    return pin_z, pin_w, soup
+
+
+def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True,
+                 guides=None):
     """suggest() as a progress generator — yields (fraction, label) between
     the field stages and between traces so a background job can keep the UI
     alive and honour a Cancel mid-way.
@@ -305,8 +376,16 @@ def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True):
     tris = np.asarray(tris, dtype=int)
     yield (0.05, "smoothing the proxy")
     field_verts = smooth_proxy(verts, tris) if presmooth else verts
+    pin_z = pin_w = None
+    guide_soup = np.zeros((0, 3))
+    if guides:
+        yield (0.10, "reading the authored arcs")
+        frames0 = face_frames(field_verts, tris)
+        pin_z, pin_w, guide_soup = guide_pins(field_verts, tris, guides,
+                                              frames0)
     yield (0.15, "solving the cross field")
-    theta, frames, pairs = smooth_field(field_verts, tris)
+    theta, frames, pairs = smooth_field(field_verts, tris,
+                                        pin_z=pin_z, pin_w=pin_w)
     yield (0.45, "finding field poles")
     sing = singularities(tris, theta, frames, pairs)
     e1, e2, n = frames
@@ -318,6 +397,12 @@ def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True):
     min_pts = 8
 
     sing_ids = list(sing.keys())
+    if len(guide_soup):
+        # complete the layout, don't redraw it: poles buried in authored
+        # geometry are already resolved by the artist's own arcs
+        sing_ids = [v for v in sing_ids
+                    if float(np.linalg.norm(guide_soup - verts[v],
+                                            axis=1).min()) > keep_out]
     sing_pts = verts[sing_ids] if sing_ids else np.zeros((0, 3))
     reps = _cluster(sing_pts, keep_out) if len(sing_pts) else []
     nbrs = face_neighbors(tris)
@@ -331,6 +416,9 @@ def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True):
     laid = []
 
     def stop_fn(p, travelled):
+        if len(guide_soup) and travelled > keep_out and float(
+                np.linalg.norm(guide_soup - p, axis=1).min()) < step:
+            return True      # reached an authored arc — accept will snap it
         if travelled < keep_out * 2:
             return False
         if len(sing_pts) and np.linalg.norm(sing_pts - p, axis=1).min() \

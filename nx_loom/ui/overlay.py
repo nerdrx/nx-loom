@@ -54,6 +54,14 @@ _preview = {"path": None, "snap": None, "anchor": None}
 _hover = {"node": None, "arc": None, "seam": None}
 _stamp = {"polys": None}
 _magnet = {"curves": None}
+_brush = {"center": None, "radius": 0.0}
+
+
+def set_brush_cursor(center, radius):
+    _brush["center"] = None if center is None else np.asarray(center,
+                                                              dtype=float)
+    _brush["radius"] = float(radius)
+    _tag_redraw()
 _qcache = {"key": None, "batch": None, "worst": 0}
 
 
@@ -486,6 +494,34 @@ def draw():
             _pass(1.0)
     finally:
         gpu.matrix.pop_projection()
+
+    if _brush["center"] is not None and _brush["radius"] > 0.0:
+        c = _brush["center"]
+        r = _brush["radius"]
+        try:
+            view = np.asarray(
+                bpy.context.space_data.region_3d.view_matrix, dtype=float)
+            nrm = view[2, :3]
+        except Exception:
+            nrm = np.array([0.0, 0.0, 1.0])
+        a = np.cross(nrm, [0.0, 0.0, 1.0])
+        if np.linalg.norm(a) < 1e-6:
+            a = np.cross(nrm, [1.0, 0.0, 0.0])
+        a = a / np.linalg.norm(a)
+        b = np.cross(nrm, a)
+        ang = np.linspace(0.0, 2 * np.pi, 33)
+        ring = c[None, :] + np.outer(np.cos(ang), a) * r \
+            + np.outer(np.sin(ang), b) * r
+        pairs = []
+        for i in range(len(ring) - 1):
+            pairs.append(tuple(ring[i]))
+            pairs.append(tuple(ring[i + 1]))
+        line_shader.bind()
+        line_shader.uniform_float("viewportSize", view_size)
+        line_shader.uniform_float("lineWidth", 1.6)
+        line_shader.uniform_float("color", COL_HOVER)
+        batch_for_shader(line_shader, "LINES",
+                         {"pos": pairs}).draw(line_shader)
 
     magnet_curves = _magnet["curves"]
     if magnet_curves:

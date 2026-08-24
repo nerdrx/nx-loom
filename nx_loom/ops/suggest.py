@@ -125,7 +125,9 @@ def _suggest_job(obj, ref, context):
         verts = verts[used]
         tris = remap[tris]
 
-    gen = suggest_iter(verts, tris)
+    guides = [np.asarray(a.path, dtype=float)
+              for a in graph.arcs.values() if len(a.path) >= 2]
+    gen = suggest_iter(verts, tris, guides=guides)
     while True:
         try:
             item = next(gen)

@@ -326,6 +326,16 @@ class NXLOOM_PT_symmetry(_Sub, bpy.types.Panel):
                 op.keep = "NEG"
                 op.scope = "ALL"
 
+        box = layout.box()
+        box.label(text="Radial", icon="PROP_CON")
+        row = box.row(align=True)
+        row.prop(st, "radial_count")
+        row.prop(st, "radial_axis", text="")
+        box.operator("nxloom.radialize", icon="MOD_ARRAY")
+        col = box.column(align=True)
+        col.label(text="Draw one wedge, get the")
+        col.label(text="rest as ghosts to accept.")
+
 
 class NXLOOM_PT_edits(_Sub, bpy.types.Panel):
     bl_label = "Hand Edits"
@@ -343,6 +353,11 @@ class NXLOOM_PT_edits(_Sub, bpy.types.Panel):
         row = layout.row()
         row.enabled = st.symmetry_axis != "NONE"
         row.prop(st, "mirror_edits")
+        layout.operator("nxloom.brush", icon="BRUSHES_ALL")
+        col = layout.column(align=True)
+        col.label(text="Drag tweaks, Shift-drag")
+        col.label(text="relaxes; edits are captured")
+        col.label(text="when the brush ends.")
         row = layout.row(align=True)
         row.operator("nxloom.capture_edits", icon="IMPORT")
         row.operator("nxloom.clear_edits", text="", icon="X")
@@ -355,6 +370,11 @@ class NXLOOM_PT_finish(_Sub, bpy.types.Panel):
         layout = self.layout
         st = context.scene.nx_loom
         layout.prop(st, "transfer_data")
+        layout.operator("nxloom.bake_maps", icon="RENDER_STILL")
+        col = layout.column(align=True)
+        col.label(text="Normal (and AO) from the")
+        col.label(text="sculpt onto the layout UVs.")
+        layout.separator()
         layout.label(text="Apply drops the layout.", icon="ERROR")
         layout.operator("nxloom.apply", icon="CHECKMARK")
 
