@@ -90,6 +90,15 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "captured by Save Stamp",
         default=0.3, min=0.001, soft_max=5.0, unit="LENGTH",
     )
+    assist: FloatProperty(
+        name="Assist",
+        description="How eagerly the tool helps: scales how many arcs "
+                    "Suggest proposes and how hard the magnet pulls. "
+                    "0 offers almost nothing, 1 offers everything it has. "
+                    "It never makes anything happen unprompted, and "
+                    "explicit toggles always outrank it",
+        default=0.5, min=0.0, max=1.0, subtype="FACTOR",
+    )
     magnet: BoolProperty(
         name="Magnet",
         description="Freehand strokes snap to the sculpt's own ridges and "

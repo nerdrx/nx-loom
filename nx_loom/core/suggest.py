@@ -110,11 +110,16 @@ def smooth_field(verts, tris, iters=60, anchor=0.5, pin_z=None, pin_w=None):
     z0, w0 = curvature_alignment(verts, tris, e1, e2, n)
     pin_mask = None
     if pin_z is not None and pin_w is not None:
-        pin_mask = np.asarray(pin_w) > 0
+        pw = np.asarray(pin_w)
+        soft = pw > 0
         z0 = z0.copy()
         w0 = w0.copy()
-        z0[pin_mask] = np.asarray(pin_z)[pin_mask]
-        w0[pin_mask] = np.asarray(pin_w)[pin_mask]
+        z0[soft] = np.asarray(pin_z)[soft]
+        w0[soft] = pw[soft]
+        # only STRONG pins (authored arcs) are constraints; weaker ones
+        # (comb hints) persuade through the anchor term but yield to arcs
+        # and, gently, to neighbours
+        pin_mask = pw >= 2.0
     z = z0.copy()
     z[np.abs(z) < 1e-12] = 1.0
 
@@ -303,15 +308,16 @@ def _cluster(points, radius):
 
 
 def suggest(verts, tris, spacing=None, max_traces=48, presmooth=True,
-            guides=None):
+            guides=None, hints=None, min_pts=8, keep_out_scale=1.0):
     """Separatrix suggestions. -> (polylines, singular_points)."""
     from .budget import drain
     return drain(suggest_iter(verts, tris, spacing=spacing,
                               max_traces=max_traces, presmooth=presmooth,
-                              guides=guides))
+                              guides=guides, hints=hints, min_pts=min_pts,
+                              keep_out_scale=keep_out_scale))
 
 
-def guide_pins(verts, tris, guides, frames):
+def guide_pins(verts, tris, guides, frames, weight=3.0):
     """Fold authored arc tangents onto the proxy's faces.
 
     Every guide polyline is resampled to roughly face-sized steps, each
@@ -355,14 +361,14 @@ def guide_pins(verts, tris, guides, frames):
             ang = np.arctan2(float(tan @ e2[f]), float(tan @ e1[f]))
             acc[f] += np.exp(4j * ang)
     ln = np.abs(acc)
-    pin_w = np.where(ln > 1e-9, 3.0, 0.0)
+    pin_w = np.where(ln > 1e-9, float(weight), 0.0)
     pin_z = np.where(ln > 1e-9, acc / np.where(ln > 1e-9, ln, 1.0), 0.0)
     soup = np.concatenate(soup) if soup else np.zeros((0, 3))
     return pin_z, pin_w, soup
 
 
 def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True,
-                 guides=None):
+                 guides=None, hints=None, min_pts=8, keep_out_scale=1.0):
     """suggest() as a progress generator — yields (fraction, label) between
     the field stages and between traces so a background job can keep the UI
     alive and honour a Cancel mid-way.
@@ -378,11 +384,23 @@ def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True,
     field_verts = smooth_proxy(verts, tris) if presmooth else verts
     pin_z = pin_w = None
     guide_soup = np.zeros((0, 3))
-    if guides:
+    if guides or hints:
         yield (0.10, "reading the authored arcs")
         frames0 = face_frames(field_verts, tris)
-        pin_z, pin_w, guide_soup = guide_pins(field_verts, tris, guides,
-                                              frames0)
+        if hints:
+            # comb hints: soft direction pins — persuade, never constrain,
+            # and never keep traces out (they are not geometry)
+            pin_z, pin_w, _ = guide_pins(field_verts, tris, hints,
+                                         frames0, weight=1.5)
+        if guides:
+            gz, gw, guide_soup = guide_pins(field_verts, tris, guides,
+                                            frames0, weight=3.0)
+            if pin_z is None:
+                pin_z, pin_w = gz, gw
+            else:
+                hard = gw > 0
+                pin_z = np.where(hard, gz, pin_z)
+                pin_w = np.where(hard, gw, pin_w)
     yield (0.15, "solving the cross field")
     theta, frames, pairs = smooth_field(field_verts, tris,
                                         pin_z=pin_z, pin_w=pin_w)
@@ -393,8 +411,7 @@ def suggest_iter(verts, tris, spacing=None, max_traces=48, presmooth=True,
     span = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
     step = span * 0.02
     max_len = span * 0.8
-    keep_out = span * 0.04
-    min_pts = 8
+    keep_out = span * 0.04 * float(keep_out_scale)
 
     sing_ids = list(sing.keys())
     if len(guide_soup):

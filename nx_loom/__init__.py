@@ -1,7 +1,7 @@
 bl_info = {
     "name": "NX Loom",
     "author": "nerdrx + Claude",
-    "version": (0, 30, 0),
+    "version": (0, 31, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > NX Loom",
     "description": "Authored topology: draw the layout, the quads are generated. "
@@ -18,6 +18,7 @@ def _bpy_modules():
     from . import properties
     from .ops import bake as ops_bake
     from .ops import brush as ops_brush
+    from .ops import comb as ops_comb
     from .ops import draw as ops_draw
     from .ops import jobs as ops_jobs
     from .ops import layout as ops_layout
@@ -30,9 +31,9 @@ def _bpy_modules():
     from .ui import panel as ui_panel
     from .ui import tools as ui_tools
     return properties, (ops_jobs, ops_layout, ops_draw, ops_brush,
-                        ops_bake, ops_lods, ops_radial, ops_retarget,
-                        ops_suggest, ops_stamps, ui_panel, ui_tools,
-                        ui_overlay)
+                        ops_bake, ops_comb, ops_lods, ops_radial,
+                        ops_retarget, ops_suggest, ops_stamps, ui_panel,
+                        ui_tools, ui_overlay)
 
 
 def register():

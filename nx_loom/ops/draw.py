@@ -457,12 +457,18 @@ class NXLOOM_OT_draw_arc(bpy.types.Operator):
                     pts = trace_rays(self.surface, [ray], anchor=prev)
                     if len(pts):
                         sample = pts[0]
-                        if context.scene.nx_loom.magnet:
+                        st_m = context.scene.nx_loom
+                        if st_m.magnet:
                             idx = magnet_index(self.surface, self.graph,
                                                context)
+                            # Assist scales pull and reach; 0.5 = the
+                            # pre-slider feel exactly
+                            a = float(st_m.assist)
                             sample = magnet_pull(
                                 self.surface, idx["kd"], sample,
-                                _snap_radius(context, sample) * 1.5)
+                                _snap_radius(context, sample) * 1.5
+                                * (0.6 + 0.8 * a),
+                                strength=0.85 * (0.4 + 1.2 * a))
                         if prev is None or float(
                                 np.linalg.norm(sample - prev)) >= self.min_step * 0.25:
                             self.stroke_pts.append(sample)
@@ -844,7 +850,7 @@ def magnet_index(surface, graph, context):
     return _MAGNET
 
 
-def magnet_pull(surface, kd, p, radius):
+def magnet_pull(surface, kd, p, radius, strength=0.85):
     """Pull a stroke sample toward the nearest feature curve, smoothly.
 
     Full strength never quite reaches 1: the artist's hand stays in charge
@@ -856,7 +862,7 @@ def magnet_pull(surface, kd, p, radius):
     co, _idx, d = kd.find(tuple(p))
     if co is None or d is None or d > radius:
         return p
-    strength = (1.0 - d / radius) * 0.85
+    strength = (1.0 - d / radius) * min(float(strength), 1.0)
     out = p + (np.asarray(co, dtype=float) - p) * strength
     return np.asarray(surface.project(out[None, :])[0], dtype=float)
 

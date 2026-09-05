@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.31.0
+
+**The Assist slider, and combing the field.** One dial for how eager the
+tool is, and a brush for telling it where the flow should run.
+
+- **Assist** (main panel, 0..1, default 0.5). Scales how much the tool
+  offers: how many arcs Suggest proposes (12 at zero, up to 84 at one, with
+  matching length and spacing gates) and how hard and far the magnet pulls.
+  Two rules keep it honest: **0.5 reproduces the pre-slider behaviour
+  exactly** — a default must not change what you already know — and the
+  slider only scales assists that have no knob of their own; explicit
+  toggles (Bridge Rings, Magnet, Seam Snap) always outrank it. It never
+  makes anything happen unprompted.
+- **Comb Field** (Suggest panel, or **D** in the tool). Drag strokes where
+  you want the flow to run. A comb stroke is a *hint*, not geometry: it
+  soft-pins the suggestion field — outweighing the surface's own curvature
+  opinion, yielding to authored arcs, drawn thin in the arc family's violet.
+  Comb, then Suggest; the proposals follow your comb. Clear Combs resets
+  the field to pure curvature. Under test: hints visibly bend the field
+  where they run, and an authored arc on the same face always wins.
+
+Suite: 482 headless + 19 GUI checks, 117-layout sweep clean.
+
 ## 0.30.0
 
 **The competitive gaps** — the three things rival tools genuinely had on us,

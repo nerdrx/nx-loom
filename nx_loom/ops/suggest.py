@@ -15,6 +15,18 @@ from .layout import active_object, get_graph, set_graph
 PROXY_FACES = 9000
 
 
+def assist_params(assist):
+    """The Assist slider's reach into the suggestion lane, calibrated so
+    0.5 reproduces exactly the pre-slider behaviour (48 traces, min 8
+    points, keep-out x1)."""
+    a = float(max(0.0, min(1.0, assist)))
+    return {
+        "max_traces": int(round(12 + 72 * a)),
+        "min_pts": int(round(12 - 8 * a)),
+        "keep_out_scale": 1.5 - 1.0 * a,
+    }
+
+
 def _proxy_tris(src, context, max_faces=PROXY_FACES):
     """The reference, decimated to field-solving size when it is a sculpt."""
     from ..core.surface import cached_surface
@@ -127,7 +139,10 @@ def _suggest_job(obj, ref, context):
 
     guides = [np.asarray(a.path, dtype=float)
               for a in graph.arcs.values() if len(a.path) >= 2]
-    gen = suggest_iter(verts, tris, guides=guides)
+    hints = [np.asarray(flat, dtype=float).reshape(-1, 3)
+             for flat in (graph.settings.get("comb") or [])]
+    gen = suggest_iter(verts, tris, guides=guides, hints=hints or None,
+                       **assist_params(st.assist))
     while True:
         try:
             item = next(gen)

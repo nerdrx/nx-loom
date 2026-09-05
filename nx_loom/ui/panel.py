@@ -103,6 +103,7 @@ class NXLOOM_PT_main(bpy.types.Panel):
 
         layout.operator("nxloom.activate_draw_tool", icon="GREASEPENCIL")
         layout.prop(st, "magnet", icon="SNAP_ON")
+        layout.prop(st, "assist", slider=True)
 
         row = layout.row(align=True)
         row.scale_y = 1.4
@@ -392,6 +393,14 @@ class NXLOOM_PT_suggest(_Sub, bpy.types.Panel):
         layout.label(text="sculpt's curvature. Ghosts")
         layout.label(text="only — nothing is applied")
         layout.label(text="until you accept.")
+        n_comb = len(graph.settings.get("comb") or []) if graph else 0
+        row = layout.row(align=True)
+        row.operator("nxloom.comb", icon="FORCE_WIND")
+        if n_comb:
+            row.operator("nxloom.comb_clear", text="", icon="X")
+        if n_comb:
+            layout.label(text=f"{n_comb} comb stroke(s) steering",
+                         icon="FORCE_WIND")
         layout.operator("nxloom.suggest_layout", icon="LIGHT_HEMI")
 
         st = context.scene.nx_loom

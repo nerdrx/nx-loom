@@ -33,6 +33,7 @@ COL_HOLE_EDGE = (0.3, 0.75, 0.8, 0.6)
 COL_TICK = (1.0, 1.0, 1.0, 0.45)
 COL_FILL_FROZEN = (0.25, 0.85, 0.65, 0.10)   # cool mint: approved, at rest
 COL_MAGNET = (0.85, 0.95, 1.0, 0.20)         # icy, like all not-yet-document
+COL_COMB = (0.75, 0.60, 1.00, 0.35)          # authored hint: violet family
 COL_Q_GOOD = (0.20, 0.75, 0.90, 0.05)
 COL_Q_BAD = (1.00, 0.25, 0.18, 0.50)         # warm = something is wrong
 COL_SEAM_CURVE = (0.35, 1.0, 1.0, 0.30)
@@ -316,6 +317,20 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
             batches["lines"].append(
                 (batch_for_shader(line_shader, "LINES", {"pos": pairs}),
                  COL_SEAM_CURVE, 1.4))
+
+    # comb strokes: authored HINTS that steer the field, drawn in the arc
+    # family's violet but thin and translucent — yours, yet not geometry
+    for flat in (graph.settings.get("comb") or []):
+        pts = np.asarray(flat, dtype=float).reshape(-1, 3)
+        if len(pts) < 2:
+            continue
+        pairs_c = []
+        for i in range(len(pts) - 1):
+            pairs_c.append(tuple(pts[i]))
+            pairs_c.append(tuple(pts[i + 1]))
+        batches["lines"].append(
+            (batch_for_shader(line_shader, "LINES", {"pos": pairs_c}),
+             COL_COMB, 1.3))
 
     # proposed arcs render as ghosts — visibly not yet part of the document.
     # With symmetry on, proposals are solved one-sided and displayed with
@@ -681,6 +696,7 @@ LEGEND = (
     ("frozen", COL_FILL_FROZEN[:3] + (1.0,)),
     ("mid / snap", COL_SEAM),
     ("suggested", COL_SUGGEST),
+    ("comb hint", COL_COMB),
 )
 
 
