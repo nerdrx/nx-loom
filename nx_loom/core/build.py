@@ -329,6 +329,7 @@ def build_iter(graph, target_edge=None, project=None, relax_iters=20,
     failed = []
     holes = []
     background = set() if fill_background else background_patches(graph)
+    flat_ids = graph.flat_patches()
     n_patches = max(len(graph.patches), 1)
     for done, (pid, patch) in enumerate(graph.patches.items()):
         if deadline is not None:
@@ -372,6 +373,25 @@ def build_iter(graph, target_edge=None, project=None, relax_iters=20,
                     tag = ("q", int(pid), int(loc))
                 remap[loc] = add(loc_verts[loc], tag)
         patch_quads = [tuple(remap[i] for i in q) for q in loc_quads]
+        if pid in flat_ids:
+            # a flattened patch's interior lies ON its boundary's plane —
+            # boundary vertices stay put (they are shared with neighbours),
+            # so a flat panel is flat while its rim still welds
+            boundary = np.concatenate([np.asarray(sp, dtype=float)
+                                       for sp in side_pts])
+            bc = boundary.mean(axis=0)
+            d = boundary - bc
+            _w, vv = np.linalg.eigh(d.T @ d)
+            pn = vv[:, 0]
+            boundary_ids = set()
+            for (_s, si, k) in slots:
+                boundary_ids.add(side_ids[si][k])
+            for loc in range(len(loc_verts)):
+                gi = remap[loc]
+                if gi in boundary_ids:
+                    continue
+                v = verts[gi]
+                verts[gi] = v - pn * float((v - bc) @ pn)
         if _would_be_nonmanifold(quads, patch_quads):
             # A patch whose fill collides with an already-placed one means the
             # layout was mis-traversed. Emitting it would hand the artist a

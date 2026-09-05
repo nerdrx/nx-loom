@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.33.0
+
+**The primitive lane** — hard-surface Tier 3. A mechanical reference is
+planes and cylinders wearing noise; the tool now knows which is which.
+
+- **Detection** (`core/primitives.py`). The reference segments into smooth
+  regions with sharp dihedral edges as walls (deliberately NOT the magnet's
+  relative-contrast gate — a cylinder's own curvature would drown its rims
+  there). Each region is fitted: plane (least squares), else cylinder
+  (the axis is the direction the face normals *don't* span, then a Kasa
+  circle fit), else honestly "free". A box is six planes and nothing else;
+  a sphere is free.
+- **From Primitives** (Suggest panel). Every detected cylinder proposes
+  exact rings — mathematically round, axis-perpendicular, spaced by the
+  target edge — as ghost quarter-arcs (ring-cut convention, corners on
+  accept). Idempotent via the usual coverage skip; the report also counts
+  the flat regions it found.
+- **Flatten** (**V** over a patch). Marks a patch as truly planar: its
+  interior is projected onto its boundary's best-fit plane instead of the
+  noisy reference, while the boundary itself stays put so the rim still
+  welds. A scanned flat panel comes out actually flat (measured: 0.022 of
+  noise to 1e-10). Canonically keyed like holes and freezes — a mirrored
+  pair flattens as one, editing thaws it. Steel-blue wash + legend entry.
+
+Suite: 496 headless + 19 GUI checks, 117-layout sweep clean.
+
 ## 0.32.0
 
 **The hard-surface lane.** A mechanical part's topology IS its crease

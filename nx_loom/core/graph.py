@@ -323,6 +323,34 @@ class LayoutGraph:
                         locks[aid] = int(arc.n)
         return locks
 
+    def is_flat(self, pid):
+        stored = {tuple(k) for k in self.settings.get("flatten", [])}
+        return (self.canonical_key(pid) in stored
+                or self.patches[pid].arc_key() in stored)
+
+    def set_flat(self, pid, flag):
+        """Mark a patch as truly planar: its interior is projected onto its
+        boundary's best-fit plane instead of the (possibly noisy) reference
+        — a scanned flat panel comes out actually flat. Canonical keys, so
+        a mirrored pair flattens as one."""
+        stored = {tuple(k) for k in self.settings.get("flatten", [])}
+        canon = self.canonical_key(pid)
+        raw = self.patches[pid].arc_key()
+        if flag:
+            stored.add(canon)
+        else:
+            stored.discard(canon)
+            stored.discard(raw)
+        self.settings["flatten"] = [list(k) for k in sorted(stored)]
+
+    def flat_patches(self):
+        stored = {tuple(k) for k in self.settings.get("flatten", [])}
+        if not stored:
+            return set()
+        return {pid for pid in self.patches
+                if self.canonical_key(pid) in stored
+                or self.patches[pid].arc_key() in stored}
+
     def set_hole(self, pid, is_hole):
         holes = {tuple(k) for k in self.settings.get("holes", [])}
         canon = self.canonical_key(pid)

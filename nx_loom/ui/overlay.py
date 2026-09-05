@@ -34,6 +34,7 @@ COL_TICK = (1.0, 1.0, 1.0, 0.45)
 COL_FILL_FROZEN = (0.25, 0.85, 0.65, 0.10)   # cool mint: approved, at rest
 COL_MAGNET = (0.85, 0.95, 1.0, 0.20)         # icy, like all not-yet-document
 COL_COMB = (0.75, 0.60, 1.00, 0.35)          # authored hint: violet family
+COL_FILL_FLAT = (0.45, 0.60, 0.95, 0.08)     # steel blue: held to a plane
 COL_Q_GOOD = (0.20, 0.75, 0.90, 0.05)
 COL_Q_BAD = (1.00, 0.25, 0.18, 0.50)         # warm = something is wrong
 COL_SEAM_CURVE = (0.35, 1.0, 1.0, 0.30)
@@ -266,6 +267,13 @@ def _build(graph, bad_ids, active=None, axis="NONE", extras=None):
                     batches["tris"].append(
                         (batch_for_shader(point_shader, "TRIS", {"pos": tris}),
                          COL_FILL_BG))
+        for pid in graph.flat_patches():
+            if pid in graph.patches:
+                tris = _fan(graph.patch_boundary(pid))
+                if tris:
+                    batches["tris"].append(
+                        (batch_for_shader(point_shader, "TRIS", {"pos": tris}),
+                         COL_FILL_FLAT))
         for pid in graph.frozen_patches():
             if pid in graph.patches:
                 tris = _fan(graph.patch_boundary(pid))
@@ -694,6 +702,7 @@ LEGEND = (
     ("failed patch", COL_FILL_BAD[:3] + (1.0,)),
     ("hole", COL_HOLE_EDGE[:3] + (1.0,)),
     ("frozen", COL_FILL_FROZEN[:3] + (1.0,)),
+    ("flattened", COL_FILL_FLAT[:3] + (1.0,)),
     ("mid / snap", COL_SEAM),
     ("suggested", COL_SUGGEST),
     ("comb hint", COL_COMB),

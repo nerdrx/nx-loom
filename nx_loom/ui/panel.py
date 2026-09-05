@@ -249,6 +249,8 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
         col = fbox.column(align=True)
         col.label(text="F over a patch marks it done:")
         col.label(text="its counts never re-solve.")
+        col.label(text="V flattens a patch onto its")
+        col.label(text="boundary plane (scan noise).")
         row = fbox.row(align=True)
         row.operator("nxloom.freeze_solved", icon="FREEZE")
         if frozen:
@@ -406,6 +408,7 @@ class NXLOOM_PT_suggest(_Sub, bpy.types.Panel):
                          icon="FORCE_WIND")
         layout.operator("nxloom.suggest_layout", icon="LIGHT_HEMI")
         layout.operator("nxloom.suggest_creases", icon="MOD_EDGESPLIT")
+        layout.operator("nxloom.suggest_primitives", icon="MESH_CYLINDER")
 
         st = context.scene.nx_loom
         box = layout.box()

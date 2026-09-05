@@ -86,6 +86,152 @@ class NXLOOM_OT_suggest_creases(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def cylinder_rings(det, verts, target_edge, project=None):
+    """Ghost rings for every detected cylinder: mathematically round,
+    axis-perpendicular, emitted as quarter arcs so accepting gives each
+    ring its corners (the ring-cut convention)."""
+    ghosts = []
+    for region in det:
+        if region["kind"] != "cylinder":
+            continue
+        axis = np.asarray(region["axis"], dtype=float)
+        centre = np.asarray(region["centre"], dtype=float)
+        r = float(region["radius"])
+        e1 = np.array([1.0, 0.0, 0.0])
+        if abs(float(e1 @ axis)) > 0.9:
+            e1 = np.array([0.0, 1.0, 0.0])
+        e1 = e1 - axis * float(e1 @ axis)
+        e1 /= np.linalg.norm(e1)
+        e2 = np.cross(axis, e1)
+        h = region["heights"]
+        lo, hi = float(h.min()), float(h.max())
+        spacing = max(target_edge * 2.0, (hi - lo) / 24.0)
+        n_rings = max(int(round((hi - lo) / spacing)) - 1, 1)
+        for k in range(1, n_rings + 1):
+            z = lo + (hi - lo) * k / (n_rings + 1)
+            c = centre + axis * (z - float(centre @ axis))
+            for q in range(4):
+                ts = np.linspace(q * np.pi / 2, (q + 1) * np.pi / 2, 9)
+                ring = (c[None, :] + np.outer(np.cos(ts), e1) * r
+                        + np.outer(np.sin(ts), e2) * r)
+                if project is not None:
+                    ring = np.asarray(project(ring), dtype=float)
+                ghosts.append(ring)
+    return ghosts
+
+
+class NXLOOM_OT_suggest_primitives(bpy.types.Operator):
+    """Detect the planes and cylinders between the creases and propose
+    exact rings on every cylinder — mathematically round, not traced"""
+
+    bl_idname = "nxloom.suggest_primitives"
+    bl_label = "From Primitives"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = active_object(context)
+        return bool(obj is not None and GRAPH_KEY in obj)
+
+    def execute(self, context):
+        st = context.scene.nx_loom
+        obj = active_object(context)
+        graph = get_graph(obj)
+        ref = bpy.data.objects.get(graph.reference) if graph.reference \
+            else None
+        if ref is None:
+            ref = st.reference
+        if ref is None:
+            self.report({"ERROR"}, "Set a Reference mesh first")
+            return {"CANCELLED"}
+        proxy = _proxy_tris(ref, context)
+        if proxy is None:
+            self.report({"ERROR"}, "Could not read the reference")
+            return {"CANCELLED"}
+        verts, tris = proxy
+
+        from ..core.primitives import detect
+        det = detect(verts, tris)
+        va = np.asarray(verts, dtype=float)
+        ta = np.asarray(tris, dtype=int)
+        for region in det:
+            if region["kind"] == "cylinder":
+                # extent from the region's VERTICES — face centres of a
+                # single tall quad row sit at a third of the height and
+                # would starve the ring count
+                region["heights"] = va[ta[region["faces"]]].reshape(-1, 3) \
+                    @ np.asarray(region["axis"], dtype=float)
+        surface = _surface_of(graph, context)
+        ghosts = cylinder_rings(det, verts, st.target_edge,
+                                project=surface.project
+                                if surface is not None else None)
+        span = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
+        ghosts = clip_one_sided(ghosts, st, span)
+
+        # complete, don't redraw (same coverage skip as creases)
+        soup = [np.asarray(a.path, dtype=float) for a in graph.arcs.values()
+                if len(a.path)]
+        if soup and ghosts:
+            soup = np.concatenate(soup)
+            tol = span * 0.02
+            ghosts = [g for g in ghosts
+                      if float(np.median(np.array(
+                          [float(np.linalg.norm(soup - q, axis=1).min())
+                           for q in g[:: max(len(g) // 4, 1)]]))) >= tol]
+
+        n_cyl = sum(1 for r in det if r["kind"] == "cylinder")
+        n_plane = sum(1 for r in det if r["kind"] == "plane")
+        if not ghosts:
+            self.report({"INFO"},
+                        f"{n_cyl} cylinder(s), {n_plane} flat region(s) "
+                        f"found — nothing new to propose"
+                        + (". Mark flat patches with V to kill scan noise"
+                           if n_plane else ""))
+            return {"CANCELLED"}
+        store_ghosts(graph, ghosts, arc_type="flow", append=True)
+        set_graph(obj, graph)
+        overlay.mark_dirty()
+        self.report({"INFO"},
+                    f"{len(ghosts) // 4} exact ring(s) on {n_cyl} "
+                    f"cylinder(s) proposed; {n_plane} flat region(s) — "
+                    f"V flattens a patch")
+        return {"FINISHED"}
+
+
+class NXLOOM_OT_toggle_flatten(bpy.types.Operator):
+    """Mark the patch under the cursor as truly planar — its interior is
+    projected onto the boundary's plane, so scan noise on a flat panel
+    disappears — or unmark it"""
+
+    bl_idname = "nxloom.toggle_flatten"
+    bl_label = "Flatten Patch"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        from .draw import _context_ok
+        return _context_ok(context)
+
+    def invoke(self, context, event):
+        from .draw import _patch_under
+        obj = active_object(context)
+        graph = get_graph(obj)
+        if graph is None or not graph.patches:
+            return {"CANCELLED"}
+        pid = _patch_under(context, obj, graph, event)
+        if pid is None:
+            self.report({"WARNING"}, "No patch under the cursor")
+            return {"CANCELLED"}
+        flag = not graph.is_flat(pid)
+        graph.set_flat(pid, flag)
+        set_graph(obj, graph)
+        refresh(obj, graph, context)
+        self.report({"INFO"},
+                    f"Patch {pid} {'flattened onto its boundary plane'
+                    if flag else 'follows the reference again'}")
+        return {"FINISHED"}
+
+
 def crease_chain(graph, aid):
     """The selected arc plus its continuation through 2-valence joints of
     the same type — a crease is usually a chain, not one arc."""
@@ -181,7 +327,8 @@ class NXLOOM_OT_support_loops(bpy.types.Operator):
         return {"FINISHED"}
 
 
-_CLASSES = (NXLOOM_OT_suggest_creases, NXLOOM_OT_support_loops)
+_CLASSES = (NXLOOM_OT_suggest_creases, NXLOOM_OT_suggest_primitives,
+            NXLOOM_OT_toggle_flatten, NXLOOM_OT_support_loops)
 
 
 def register():

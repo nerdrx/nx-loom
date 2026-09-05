@@ -43,6 +43,7 @@ class NXLOOM_TOOL_draw(bpy.types.WorkSpaceTool):
         ("nxloom.toggle_freeze", {"type": "F", "value": "PRESS"}, None),
         ("nxloom.brush", {"type": "B", "value": "PRESS"}, None),
         ("nxloom.comb", {"type": "D", "value": "PRESS"}, None),
+        ("nxloom.toggle_flatten", {"type": "V", "value": "PRESS"}, None),
         ("nxloom.set_arc_type_key", {"type": "ONE", "value": "PRESS"},
          {"properties": [("kind", "flow")]}),
         ("nxloom.set_arc_type_key", {"type": "TWO", "value": "PRESS"},
