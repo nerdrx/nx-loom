@@ -15,6 +15,48 @@ from .layout import active_object, get_graph, set_graph
 PROXY_FACES = 9000
 
 
+def clip_one_sided(polylines, st, span):
+    """With symmetry on, drop ghost points in the seam band and beyond —
+    proposals live on the kept side; the seam curve owns the mirror line."""
+    if st.symmetry_axis == "NONE" or not polylines:
+        return polylines
+    from ..core.symmetry import AXIS_INDEX
+    ax = AXIS_INDEX[st.symmetry_axis]
+    band = max(st.symmetry_tolerance * 4.0, span * 0.02)
+    clipped = []
+    for poly in polylines:
+        poly = np.asarray(poly, dtype=float)
+        mask = poly[:, ax] >= band
+        i = 0
+        while i < len(poly):
+            if not mask[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(poly) and mask[j + 1]:
+                j += 1
+            if j - i + 1 >= 6:
+                clipped.append(poly[i:j + 1])
+            i = j + 1
+    return clipped
+
+
+def store_ghosts(graph, polylines, arc_type="flow", append=False):
+    """Write ghost proposals plus their per-ghost arc type. The types ride
+    in settings["suggestion_types"], index-aligned; a missing or short list
+    means untyped, which accept treats as it always has."""
+    flats = [[float(x) for p in np.asarray(poly, dtype=float) for x in p]
+             for poly in polylines]
+    if append:
+        stored = list(graph.settings.get("suggestions") or [])
+        types = list(graph.settings.get("suggestion_types") or [])
+        types += [""] * (len(stored) - len(types))
+    else:
+        stored, types = [], []
+    graph.settings["suggestions"] = stored + flats
+    graph.settings["suggestion_types"] = types + [arc_type] * len(flats)
+
+
 def assist_params(assist):
     """The Assist slider's reach into the suggestion lane, calibrated so
     0.5 reproduces exactly the pre-slider behaviour (48 traces, min 8
@@ -152,41 +194,22 @@ def _suggest_job(obj, ref, context):
         if item is not None:
             yield (0.05 + 0.9 * float(item[0]), item[1])
 
-    if st.symmetry_axis != "NONE" and polylines:
-        # clip proposals out of the seam band: a trace hugging the mirror
-        # line proposes nothing the seam does not already own, and its
-        # near-coincident mirror image only breeds unpaired-arc warnings
-        from ..core.symmetry import AXIS_INDEX
-        ax = AXIS_INDEX[st.symmetry_axis]
-        span = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
-        band = max(st.symmetry_tolerance * 4.0, span * 0.02)
-        clipped = []
-        for poly in polylines:
-            mask = poly[:, ax] >= band
-            i = 0
-            while i < len(poly):
-                if not mask[i]:
-                    i += 1
-                    continue
-                j = i
-                while j + 1 < len(poly) and mask[j + 1]:
-                    j += 1
-                if j - i + 1 >= 6:
-                    clipped.append(poly[i:j + 1])
-                i = j + 1
-        polylines = clipped
+    # clip proposals out of the seam band: a trace hugging the mirror
+    # line proposes nothing the seam does not already own
+    polylines = clip_one_sided(
+        polylines, st,
+        float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0))))
     obj["nx_loom_suggest_ms"] = (_time.monotonic() - t_start) * 1000.0
     if not polylines:
         # a lane with nothing confident to offer offers nothing
-        graph.settings["suggestions"] = []
+        store_ghosts(graph, [])
         set_graph(obj, graph)
         overlay.mark_dirty()
         return ("INFO",
                 "No confident suggestions on this surface — its "
                 "curvature does not pin down an edge flow here")
 
-    graph.settings["suggestions"] = [
-        [float(x) for p in poly for x in p] for poly in polylines]
+    store_ghosts(graph, polylines, arc_type="flow")
     set_graph(obj, graph)
     overlay.mark_dirty()
     return ("INFO",
@@ -215,7 +238,10 @@ class NXLOOM_OT_suggest_accept(bpy.types.Operator):
         graph = get_graph(obj)
         surface = _surface_of(graph, context)
         stored = graph.settings.get("suggestions") or []
+        types = list(graph.settings.get("suggestion_types") or [])
+        types += [""] * (len(stored) - len(types))
         graph.settings["suggestions"] = []
+        graph.settings["suggestion_types"] = []
 
         span = 1.0
         if surface is not None and len(surface.verts):
@@ -224,7 +250,7 @@ class NXLOOM_OT_suggest_accept(bpy.types.Operator):
         snap = span * 0.012
         min_step = span * 0.004
         made = 0
-        for flat in stored:
+        for flat, gtype in zip(stored, types):
             poly = np.asarray(flat, dtype=float).reshape(-1, 3)
             if len(poly) < 3:
                 continue
@@ -235,7 +261,8 @@ class NXLOOM_OT_suggest_accept(bpy.types.Operator):
                 from ..core.symmetry import AXIS_INDEX
                 plane = (AXIS_INDEX[st.symmetry_axis], span * 0.01)
             res = commit_path(graph, surface, poly, snap, min_step,
-                              arc_type=st.arc_type, smooth=0.25, plane=plane)
+                              arc_type=gtype or st.arc_type,
+                              smooth=0.25, plane=plane)
             if res is not None:
                 made += 1
         set_graph(obj, graph)
@@ -263,6 +290,7 @@ class NXLOOM_OT_suggest_clear(bpy.types.Operator):
         graph = get_graph(obj)
         n = len(graph.settings.get("suggestions") or [])
         graph.settings["suggestions"] = []
+        graph.settings["suggestion_types"] = []
         set_graph(obj, graph)
         overlay.mark_dirty()
         self.report({"INFO"}, f"{n} suggestion(s) discarded")

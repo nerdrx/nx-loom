@@ -139,6 +139,11 @@ def commit_path(graph, surface, path, snap_radius, min_step,
     path = decimate(path, min_step)
     if len(path) < 2:
         path = np.vstack([graph.nodes[a].co, graph.nodes[b].co])
+    if arc_type == "crease":
+        # a crease is feature-locked: it lies ON a line the surface already
+        # has, and fairing it off that line is the one thing hard-surface
+        # work can never forgive
+        smooth = 0.0
     if rail == "surface" and smooth > 0.0 and len(path) > 3:
         project = surface.project if surface is not None else None
         path = fair_path(path, iters=max(int(round(smooth * 24)), 1),
@@ -1549,8 +1554,8 @@ class NXLOOM_OT_smooth_arcs(bpy.types.Operator):
         n = 0
         for a in targets:
             arc = graph.arcs[a]
-            if len(arc.path) < 4:
-                continue
+            if len(arc.path) < 4 or arc.type == "crease":
+                continue      # creases are feature-locked, never faired
             arc.path = fair_path(arc.path, iters=10, strength=0.5,
                                  project=project)
             if surface is not None:

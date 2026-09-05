@@ -229,6 +229,9 @@ class NXLOOM_PT_size(_Sub, bpy.types.Panel):
             row = col.row(align=True)
             row.enabled = bool(arc.n_lock)
             row.operator("nxloom.unpin_arc", icon="UNLINKED")
+            col.separator()
+            col.prop(st, "support_offset")
+            col.operator("nxloom.support_loops", icon="MOD_SOLIDIFY")
         else:
             box.label(text="Alt+Shift click an arc to")
             box.label(text="select it, then type its")
@@ -402,6 +405,7 @@ class NXLOOM_PT_suggest(_Sub, bpy.types.Panel):
             layout.label(text=f"{n_comb} comb stroke(s) steering",
                          icon="FORCE_WIND")
         layout.operator("nxloom.suggest_layout", icon="LIGHT_HEMI")
+        layout.operator("nxloom.suggest_creases", icon="MOD_EDGESPLIT")
 
         st = context.scene.nx_loom
         box = layout.box()

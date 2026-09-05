@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.32.0
+
+**The hard-surface lane.** A mechanical part's topology IS its crease
+network — and the layout graph finally treats it that way.
+
+- **Suggest from Creases** (Suggest panel). One click promotes the
+  reference's own crease network — the same feature curves the magnet snaps
+  to — into ghost proposals typed as **crease** arcs. Accept, then Suggest
+  Arcs: constrained auto-complete fills the flats between, flowing into the
+  creases. On CAD-clean references the detection is essentially noise-free.
+  Creases the layout already carries are never proposed again.
+- **Crease fidelity.** The `crease` arc type is load-bearing now: a crease
+  is feature-locked, so commit **never fairs it** (whatever the smoothing
+  setting) and Smooth Arcs skips it — the one thing hard-surface work can
+  never forgive is an edge nudged off its line.
+- **Support Loops** (Loops panel, on the selected arc). The defining
+  hard-surface pattern in one click: holding loops hugging both sides of
+  the selected arc's whole chain, at a chosen offset, laid as transfinite
+  iso-curves through every bordering quad patch — so they land
+  proportionally in curved and tapered patches, weld through the standard
+  crossing machinery, and keep the edge sharp under subdivision.
+- Ghost proposals now carry a **type**: stamps and radial copies stay
+  whatever you draw as, crease proposals commit as creases. Older stored
+  ghosts without types behave exactly as before.
+
+Suite: 488 headless + 19 GUI checks, 117-layout sweep clean.
+
 ## 0.31.0
 
 **The Assist slider, and combing the field.** One dial for how eager the

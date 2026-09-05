@@ -86,8 +86,11 @@ class NXLOOM_OT_radialize(bpy.types.Operator):
                         "Nothing new — every rotational copy already exists")
             return {"CANCELLED"}
         stored = list(graph.settings.get("suggestions") or [])
+        types = list(graph.settings.get("suggestion_types") or [])
+        types += [""] * (len(stored) - len(types))
         graph.settings["suggestions"] = stored + [
             [float(x) for p in g for x in p] for g in ghosts]
+        graph.settings["suggestion_types"] = types + [""] * len(ghosts)
         set_graph(obj, graph)
         overlay.mark_dirty()
         self.report({"INFO"},

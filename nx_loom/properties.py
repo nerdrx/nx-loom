@@ -113,6 +113,12 @@ class NXLoomSettings(bpy.types.PropertyGroup):
                     "you Apply",
         default=False,
     )
+    support_offset: FloatProperty(
+        name="Loop Offset",
+        description="How far from the selected arc the holding loops sit, "
+                    "as a fraction of the bordering patch",
+        default=0.08, min=0.02, max=0.3, subtype="FACTOR",
+    )
     radial_count: IntProperty(
         name="Copies",
         description="How many rotational copies around the axis, the "

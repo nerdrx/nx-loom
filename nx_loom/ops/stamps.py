@@ -160,7 +160,10 @@ class NXLOOM_OT_stamp_place(bpy.types.Operator):
         if obj is None:
             return
         stored = list(graph.settings.get("suggestions") or [])
+        types = list(graph.settings.get("suggestion_types") or [])
+        types += [""] * (len(stored) - len(types))
         graph.settings["suggestions"] = stored + ghosts
+        graph.settings["suggestion_types"] = types + [""] * len(ghosts)
         set_graph(obj, graph)
         overlay.mark_dirty()
         self.report({"INFO"},
