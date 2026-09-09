@@ -146,7 +146,7 @@ solve.
 
 ## Status
 
-**v0.9.0 — draw a topology once, then reuse it on every model you own.**
+**[Latest release](https://github.com/nerdrx/nx-loom/releases/latest) — draw a topology once, then reuse it on every model you own.**
 
 Working: the layout graph, patch discovery, the quantizer, patch fill, the
 rebuild pipeline, the **Loom Draw** toolbar tool, the viewport overlay and the
@@ -158,9 +158,14 @@ checks plus 16 GUI checks, green on Blender 5.2.0. A sweep of 122 layouts
 across spheres, icospheres, cylinders, cones and tori at three densities each
 resolves every patch.
 
-The organic suggestion lane is in: **Suggest Arcs** proposes edge flow from
-the sculpt's own curvature, as ghosts you accept or discard. Hard-surface and
-rigging lanes remain future work.
+The suggestion lanes are in: **Suggest Arcs** proposes edge flow from the
+sculpt's curvature, while **From Creases** and **From Primitives** propose
+hard-surface structure as ghosts you accept or discard. **Support Loops** keeps
+creases sharp, and **Flatten Patch** projects a patch interior onto its fitted
+boundary plane. Rigging-specific workflows remain future work.
+
+The current release includes 496 headless checks, 19 GUI checks, and a clean
+117-layout sweep on Blender 5.2.0.
 
 A patch NX Loom cannot quantize, split or fill without going non-manifold is
 dropped and named in the report — never fudged into the mesh.
